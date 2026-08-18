@@ -1,0 +1,132 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CustomerType {
+  NEW
+  REPEAT
+  REFERRAL
+}
+
+enum LeadStatus {
+  NEW
+  HANDLING
+  QUOTING
+  FOLLOW_UP
+  CALLBACK
+  GOING_TO_BOOK
+  SALE_MADE
+  BOOKED_ELSEWHERE
+  NOT_INTERESTED
+  NO_RESPONSE
+  TRAVEL_IN_FUTURE
+}
+
+model User {
+  id            String      @id @default(uuid()) @db.Uuid
+  email         String      @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  isActive      Boolean     @default(true)
+  departmentId  String?     @db.Uuid
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  roles         UserRole[]
+  assignedLeads Lead[]      @relation("AssignedUserLeads")
+
+  @@index([departmentId])
+}
+
+model Department {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model Customer {
+  id           String       @id @default(uuid()) @db.Uuid
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  dateOfBirth  DateTime?    @db.Date
+  nationality  String?
+  customerType CustomerType @default(NEW)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  leads        Lead[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+model Lead {
+  id                       String     @id @default(uuid()) @db.Uuid
+  customerId               String     @db.Uuid
+  assignedUserId           String?    @db.Uuid
+  status                   LeadStatus @default(NEW)
+  source                   String?
+  destination              String?
+  travelDate               DateTime?  @db.Date
+  nextActionAt             DateTime?
+  lastMeaningfulActivityAt DateTime?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  customer                 Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser             User?      @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([nextActionAt])
+}
