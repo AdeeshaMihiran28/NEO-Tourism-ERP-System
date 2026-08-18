@@ -20,10 +20,13 @@ describe('HealthController (e2e)', () => {
     return request(app.getHttpServer()).get('/health').expect(200).expect({
       status: 'ok',
       service: 'Neo Tourism ERP API',
+      database: 'connected',
     });
   });
 
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 });

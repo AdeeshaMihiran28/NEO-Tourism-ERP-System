@@ -4,6 +4,7 @@
 # build and test output
 /dist
 /coverage
+/generated/prisma
 
 # environment files
 .env
@@ -18,3 +19,5 @@
 Thumbs.db
 .idea/
 .vscode/
+
+/generated/prisma
