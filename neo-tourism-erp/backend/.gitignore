@@ -1,0 +1,20 @@
+# dependencies
+/node_modules
+
+# build and test output
+/dist
+/coverage
+
+# environment files
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+
+# operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
