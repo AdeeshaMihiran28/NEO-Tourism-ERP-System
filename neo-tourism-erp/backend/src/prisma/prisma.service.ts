@@ -16,7 +16,12 @@ export class PrismaService
     }
 
     super({
-      adapter: new PrismaPg({ connectionString }),
+      adapter: new PrismaPg({
+        connectionString,
+        max: 1,
+        connectionTimeoutMillis: 10_000,
+        idleTimeoutMillis: 300_000,
+      }),
     });
   }
 

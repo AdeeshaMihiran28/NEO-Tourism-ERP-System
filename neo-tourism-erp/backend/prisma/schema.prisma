@@ -28,19 +28,33 @@ enum LeadStatus {
   TRAVEL_IN_FUTURE
 }
 
+enum LeadActivityType {
+  LEAD_CREATED
+  LEAD_ASSIGNED
+  STATUS_CHANGED
+  NOTE_ADDED
+  LEAD_UPDATED
+}
+
 model User {
-  id            String      @id @default(uuid()) @db.Uuid
-  email         String      @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  isActive      Boolean     @default(true)
-  departmentId  String?     @db.Uuid
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  roles         UserRole[]
-  assignedLeads Lead[]      @relation("AssignedUserLeads")
+  id               String         @id @default(uuid()) @db.Uuid
+  email            String         @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  isActive         Boolean        @default(true)
+  departmentId     String?        @db.Uuid
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  department       Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  roles            UserRole[]
+  assignedLeads    Lead[]         @relation("AssignedUserLeads")
+  createdLeads     Lead[]         @relation("LeadCreatedBy")
+  leadActivities   LeadActivity[]
+  createdCustomers Customer[]     @relation("CustomerCreatedBy")
+  updatedCustomers Customer[]     @relation("CustomerUpdatedBy")
+  customerNotes    CustomerNote[]
+  auditLogs        AuditLog[]
 
   @@index([departmentId])
 }
@@ -94,39 +108,105 @@ model RolePermission {
 }
 
 model Customer {
-  id           String       @id @default(uuid()) @db.Uuid
-  firstName    String
-  lastName     String
-  email        String?
-  phone        String?
-  dateOfBirth  DateTime?    @db.Date
-  nationality  String?
-  customerType CustomerType @default(NEW)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  leads        Lead[]
+  id             String         @id @default(uuid()) @db.Uuid
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  secondaryPhone String?
+  dateOfBirth    DateTime?      @db.Date
+  nationality    String?
+  customerType   CustomerType   @default(NEW)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  createdById    String         @db.Uuid
+  updatedById    String         @db.Uuid
+  createdBy      User           @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy      User           @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  notes          CustomerNote[]
+  leads          Lead[]
 
+  @@index([firstName])
+  @@index([lastName])
   @@index([email])
   @@index([phone])
+  @@index([customerType])
+  @@index([isActive])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+model CustomerNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  customerId  String   @db.Uuid
+  content     String
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([customerId, createdAt])
+  @@index([createdById])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String   @db.Uuid
+  entityType String
+  entityId   String   @db.Uuid
+  action     String
+  oldValues  Json?
+  newValues  Json?
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId])
+  @@index([entityType, entityId, createdAt])
 }
 
 model Lead {
-  id                       String     @id @default(uuid()) @db.Uuid
-  customerId               String     @db.Uuid
-  assignedUserId           String?    @db.Uuid
-  status                   LeadStatus @default(NEW)
+  id                       String         @id @default(uuid()) @db.Uuid
+  customerId               String         @db.Uuid
+  assignedUserId           String?        @db.Uuid
+  assignedAt               DateTime?
+  status                   LeadStatus     @default(NEW)
   source                   String?
   destination              String?
-  travelDate               DateTime?  @db.Date
+  travelDate               DateTime?      @db.Date
+  summary                  String?
+  salesNotes               String?
   nextActionAt             DateTime?
   lastMeaningfulActivityAt DateTime?
-  createdAt                DateTime   @default(now())
-  updatedAt                DateTime   @updatedAt
-  customer                 Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  assignedUser             User?      @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdById              String         @db.Uuid
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  customer                 Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser             User?          @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy                User           @relation("LeadCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activities               LeadActivity[]
 
   @@index([customerId])
   @@index([assignedUserId])
+  @@index([createdById])
   @@index([status])
+  @@index([status, assignedUserId, createdAt])
   @@index([nextActionAt])
+}
+
+model LeadActivity {
+  id          String           @id @default(uuid()) @db.Uuid
+  leadId      String           @db.Uuid
+  userId      String           @db.Uuid
+  type        LeadActivityType
+  description String
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, createdAt])
+  @@index([userId])
+  @@index([type])
 }
