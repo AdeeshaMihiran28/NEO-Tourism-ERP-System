@@ -1,24 +1,12 @@
 import type { Prisma } from '../../generated/prisma/client';
+import type { PrismaService } from '../prisma/prisma.service';
 
-export const userAccessInclude = {
+export const userIdentityInclude = {
   department: true,
-  roles: {
-    include: {
-      role: {
-        include: {
-          permissions: {
-            include: {
-              permission: true,
-            },
-          },
-        },
-      },
-    },
-  },
 } satisfies Prisma.UserInclude;
 
-export type UserWithAccess = Prisma.UserGetPayload<{
-  include: typeof userAccessInclude;
+export type UserWithIdentity = Prisma.UserGetPayload<{
+  include: typeof userIdentityInclude;
 }>;
 
 export interface SafeUser {
@@ -32,7 +20,27 @@ export interface SafeUser {
   permissions: string[];
 }
 
-export function toSafeUser(user: UserWithAccess): SafeUser {
+export async function toSafeUser(
+  prisma: PrismaService,
+  user: UserWithIdentity,
+): Promise<SafeUser> {
+  const roles = await prisma.role.findMany({
+    where: { users: { some: { userId: user.id } } },
+    select: { name: true },
+    orderBy: { name: 'asc' },
+  });
+  const permissions = await prisma.permission.findMany({
+    where: {
+      roles: {
+        some: {
+          role: { users: { some: { userId: user.id } } },
+        },
+      },
+    },
+    select: { code: true },
+    orderBy: { code: 'asc' },
+  });
+
   return {
     id: user.id,
     email: user.email,
@@ -40,13 +48,7 @@ export function toSafeUser(user: UserWithAccess): SafeUser {
     lastName: user.lastName,
     isActive: user.isActive,
     department: user.department?.name ?? null,
-    roles: user.roles.map(({ role }) => role.name).sort(),
-    permissions: [
-      ...new Set(
-        user.roles.flatMap(({ role }) =>
-          role.permissions.map(({ permission }) => permission.code),
-        ),
-      ),
-    ].sort(),
+    roles: roles.map(({ name }) => name),
+    permissions: permissions.map(({ code }) => code),
   };
 }

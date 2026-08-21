@@ -6,7 +6,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import type { Prisma } from '../../generated/prisma/client';
 import { isUniqueConstraintError } from '../common/prisma-errors';
-import { toSafeUser, userAccessInclude } from '../common/user-response';
+import { toSafeUser, userIdentityInclude } from '../common/user-response';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateUserDto } from './dto/create-user.dto';
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto';
@@ -20,24 +20,28 @@ export class UsersService {
 
   async findAll() {
     const users = await this.prisma.user.findMany({
-      include: userAccessInclude,
+      include: userIdentityInclude,
       orderBy: { email: 'asc' },
     });
 
-    return users.map(toSafeUser);
+    const responses = [];
+    for (const user of users) {
+      responses.push(await toSafeUser(this.prisma, user));
+    }
+    return responses;
   }
 
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: userAccessInclude,
+      include: userIdentityInclude,
     });
 
     if (!user) {
       throw new NotFoundException('User not found.');
     }
 
-    return toSafeUser(user);
+    return toSafeUser(this.prisma, user);
   }
 
   async create(dto: CreateUserDto) {
@@ -60,11 +64,11 @@ export class UsersService {
               create: dto.roleIds.map((roleId) => ({ roleId })),
             },
           },
-          include: userAccessInclude,
+          include: userIdentityInclude,
         });
       });
 
-      return toSafeUser(user);
+      return toSafeUser(this.prisma, user);
     } catch (error) {
       this.rethrowUniqueEmail(error);
       throw error;
@@ -115,11 +119,11 @@ export class UsersService {
               },
             }),
           },
-          include: userAccessInclude,
+          include: userIdentityInclude,
         });
       });
 
-      return toSafeUser(user);
+      return toSafeUser(this.prisma, user);
     } catch (error) {
       this.rethrowUniqueEmail(error);
       throw error;
@@ -132,10 +136,10 @@ export class UsersService {
     const user = await this.prisma.user.update({
       where: { id },
       data: { isActive: dto.isActive },
-      include: userAccessInclude,
+      include: userIdentityInclude,
     });
 
-    return toSafeUser(user);
+    return toSafeUser(this.prisma, user);
   }
 
   private async ensureUserExists(

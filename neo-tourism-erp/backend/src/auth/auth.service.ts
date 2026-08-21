@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { toSafeUser, userAccessInclude } from '../common/user-response';
+import { toSafeUser, userIdentityInclude } from '../common/user-response';
 import { PrismaService } from '../prisma/prisma.service';
 import type { JwtPayload } from './auth.types';
 import type { LoginDto } from './dto/login.dto';
@@ -16,7 +16,7 @@ export class AuthService {
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.trim().toLowerCase() },
-      include: userAccessInclude,
+      include: userIdentityInclude,
     });
 
     if (!user || !user.isActive) {
@@ -39,7 +39,7 @@ export class AuthService {
 
     return {
       accessToken: await this.jwtService.signAsync(payload),
-      user: toSafeUser(user),
+      user: await toSafeUser(this.prisma, user),
     };
   }
 }

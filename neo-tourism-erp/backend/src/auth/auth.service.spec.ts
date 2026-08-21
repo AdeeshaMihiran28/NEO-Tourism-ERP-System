@@ -24,9 +24,13 @@ describe('AuthService', () => {
     roles: [],
   };
   const findUnique = jest.fn();
+  const findRoles = jest.fn().mockResolvedValue([]);
+  const findPermissions = jest.fn().mockResolvedValue([]);
   const signAsync = jest.fn().mockResolvedValue('signed-token');
   const prisma = {
     user: { findUnique },
+    role: { findMany: findRoles },
+    permission: { findMany: findPermissions },
   } as unknown as PrismaService;
   const jwtService = { signAsync } as unknown as JwtService;
   const service = new AuthService(prisma, jwtService);
