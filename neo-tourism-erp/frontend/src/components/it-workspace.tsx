@@ -1,0 +1,47 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ApiError, apiFetch } from "@/lib/api/client";
+import { useAuth } from "./auth-provider";
+
+type Employee = { id: string; firstName: string; lastName: string; employeeNumber: string };
+type Asset = { id: string; assetTag: string; assetType: string; manufacturer: string | null; model: string | null; serialNumber: string | null; status: string; assignments: { employee: Employee }[] };
+type Ticket = { id: string; ticketNumber: string; subject: string; category: string; priority: string; status: string; createdAt: string; requestedByEmployee: Employee; assignedToUser: { firstName: string; lastName: string } | null };
+type Access = { id: string; systemName: string; accessType: string; reason: string; status: string; employee?: Employee };
+type List<T> = { data: T[] };
+
+export function ItWorkspace({ view }: { view: "assets" | "tickets" | "access" }) {
+  const { hasPermission } = useAuth();
+  const [items, setItems] = useState<unknown[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(true);
+  const load = useCallback(async () => {
+    setBusy(true); setError("");
+    try {
+      if (view === "assets") setItems((await apiFetch<List<Asset>>("/it/assets?limit=100")).data);
+      if (view === "tickets") setItems(await apiFetch<Ticket[]>(hasPermission("it.ticket.view_all") ? "/it/tickets" : "/it/tickets/my"));
+      if (view === "access") { const mine = await apiFetch<Access[]>("/it/access-requests/my"); const all = hasPermission("it.access_request.view") ? await apiFetch<Access[]>("/it/access-requests") : []; setItems([...all, ...mine.filter(x=>!all.some(y=>y.id===x.id))]); }
+    } catch (caught) { setError(caught instanceof ApiError ? caught.message : "Unable to load IT records."); } finally { setBusy(false); }
+  }, [hasPermission, view]);
+  useEffect(()=>{ void Promise.resolve().then(load); },[load]);
+  useEffect(()=>{ if (view === "assets" && hasPermission("it.asset.assign")) void apiFetch<Employee[]>("/it/employees").then(setEmployees).catch(()=>undefined); },[hasPermission,view]);
+  async function submit(path: string, body?: object, method="POST") { setError(""); setMessage(""); try { await apiFetch(path,{method,body:body?JSON.stringify(body):undefined}); setMessage("Saved successfully."); await load(); } catch(caught) { setError(caught instanceof ApiError?caught.message:"Request failed."); } }
+  const title={assets:"Assets",tickets:"Support Tickets",access:"Access Requests"}[view];
+  return <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8"><header><p className="text-sm font-medium text-violet-700">IT Operations</p><h1 className="mt-1 text-3xl font-semibold">{title}</h1></header>
+    {message&&<p className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}{error&&<p className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    {view==="assets"&&hasPermission("it.asset.create")&&<AssetForm onSubmit={body=>submit("/it/assets",body)}/>} {view==="tickets"&&<TicketForm onSubmit={body=>submit("/it/tickets",body)}/>} {view==="access"&&<AccessForm onSubmit={body=>submit("/it/access-requests",body)}/>} 
+    <section className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">{busy?<p className="p-10 text-center text-sm text-slate-500">Loading…</p>:<ItTable view={view} items={items} employees={employees} permissions={{assign:hasPermission("it.asset.assign"),manageTickets:hasPermission("it.ticket.manage"),approve:hasPermission("it.access_request.approve"),fulfil:hasPermission("it.access_request.fulfil")}} action={submit}/>}</section>
+  </div>;
+}
+
+function AssetForm({onSubmit}:{onSubmit:(b:object)=>void}) { return <Form title="Add asset" onSubmit={onSubmit}><select name="assetType" className="rounded-lg border p-2">{["LAPTOP","DESKTOP","MONITOR","MOBILE","TABLET","PRINTER","NETWORK_DEVICE","HEADSET","OTHER"].map(x=><option key={x}>{x}</option>)}</select><input name="manufacturer" placeholder="Manufacturer" className="rounded-lg border p-2"/><input name="model" placeholder="Model" className="rounded-lg border p-2"/><input name="serialNumber" placeholder="Serial number" className="rounded-lg border p-2"/></Form>; }
+function TicketForm({onSubmit}:{onSubmit:(b:object)=>void}) { return <Form title="Create ticket" onSubmit={onSubmit}><input name="subject" required placeholder="Subject" className="rounded-lg border p-2"/><select name="category" className="rounded-lg border p-2">{["HARDWARE","SOFTWARE","NETWORK","EMAIL","ACCESS","TELEPHONY","ACCOUNT","OTHER"].map(x=><option key={x}>{x}</option>)}</select><select name="priority" className="rounded-lg border p-2">{["LOW","MEDIUM","HIGH","URGENT"].map(x=><option key={x}>{x}</option>)}</select><input name="description" required placeholder="Describe the issue" className="rounded-lg border p-2"/></Form>; }
+function AccessForm({onSubmit}:{onSubmit:(b:object)=>void}) { return <Form title="Request access" onSubmit={onSubmit}><input name="systemName" required placeholder="System" className="rounded-lg border p-2"/><input name="accessType" required placeholder="Access required" className="rounded-lg border p-2"/><input name="reason" required placeholder="Business reason" className="rounded-lg border p-2"/></Form>; }
+function Form({title,onSubmit,children}:{title:string;onSubmit:(b:object)=>void;children:React.ReactNode}) { function handle(e:FormEvent<HTMLFormElement>){e.preventDefault();onSubmit(Object.fromEntries(new FormData(e.currentTarget)));e.currentTarget.reset();} return <details className="mt-5 rounded-2xl border bg-white p-4"><summary className="cursor-pointer font-semibold">{title}</summary><form onSubmit={handle} className="mt-4 grid gap-3 sm:grid-cols-4">{children}<button className="rounded-lg bg-violet-700 p-2 font-semibold text-white">Submit</button></form></details>; }
+
+function ItTable({view,items,employees,permissions,action}:{view:string;items:unknown[];employees:Employee[];permissions:{assign:boolean;manageTickets:boolean;approve:boolean;fulfil:boolean};action:(p:string,b?:object,m?:string)=>void}) {
+  if(!items.length)return <p className="p-10 text-center text-sm text-slate-500">No records found.</p>;
+  if(view==="assets")return <table className="min-w-full text-left text-sm"><thead><tr>{["Asset Tag","Type","Brand / Model","Serial","Status","Assigned To","Actions"].map(h=><th key={h} className="bg-slate-50 px-4 py-3">{h}</th>)}</tr></thead><tbody>{(items as Asset[]).map(x=><tr key={x.id} className="border-t"><td className="px-4 py-3 font-semibold">{x.assetTag}</td><td>{x.assetType}</td><td>{x.manufacturer} {x.model}</td><td>{x.serialNumber??"—"}</td><td>{x.status}</td><td>{x.assignments[0]?`${x.assignments[0].employee.firstName} ${x.assignments[0].employee.lastName}`:"—"}</td><td>{permissions.assign&&(x.status==="ASSIGNED"?<button onClick={()=>action(`/it/assets/${x.id}/return`,{})} className="text-violet-700">Return</button>:<select defaultValue="" onChange={e=>{if(e.target.value)void action(`/it/assets/${x.id}/assign`,{employeeId:e.target.value});}} className="max-w-36 rounded border p-1"><option value="">Assign…</option>{employees.map(e=><option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}</select>)}</td></tr>)}</tbody></table>;
+  if(view==="tickets")return <table className="min-w-full text-left text-sm"><thead><tr>{["Ticket No","Requester","Subject","Category","Priority","Status","Assigned To","Created","Actions"].map(h=><th key={h} className="bg-slate-50 px-4 py-3">{h}</th>)}</tr></thead><tbody>{(items as Ticket[]).map(x=><tr key={x.id} className="border-t"><td className="px-4 py-3 font-semibold">{x.ticketNumber}</td><td>{x.requestedByEmployee?`${x.requestedByEmployee.firstName} ${x.requestedByEmployee.lastName}`:"Me"}</td><td>{x.subject}</td><td>{x.category}</td><td>{x.priority}</td><td>{x.status}</td><td>{x.assignedToUser?`${x.assignedToUser.firstName} ${x.assignedToUser.lastName}`:"—"}</td><td>{new Intl.DateTimeFormat("en-GB").format(new Date(x.createdAt))}</td><td>{permissions.manageTickets&&!["RESOLVED","CLOSED"].includes(x.status)&&<button onClick={()=>{const resolution=window.prompt("Resolution");if(resolution)void action(`/it/tickets/${x.id}/resolve`,{resolution});}} className="text-violet-700">Resolve</button>}</td></tr>)}</tbody></table>;
+  return <table className="min-w-full text-left text-sm"><thead><tr>{["Employee","System","Access","Reason","Status","Actions"].map(h=><th key={h} className="bg-slate-50 px-4 py-3">{h}</th>)}</tr></thead><tbody>{(items as Access[]).map(x=><tr key={x.id} className="border-t"><td className="px-4 py-3">{x.employee?`${x.employee.firstName} ${x.employee.lastName}`:"Me"}</td><td>{x.systemName}</td><td>{x.accessType}</td><td>{x.reason}</td><td>{x.status}</td><td><span className="flex gap-2">{permissions.approve&&x.status==="PENDING"&&<><button onClick={()=>action(`/it/access-requests/${x.id}/approve`,{})} className="text-emerald-700">Approve</button><button onClick={()=>action(`/it/access-requests/${x.id}/reject`,{})} className="text-red-700">Reject</button></>}{permissions.fulfil&&x.status==="APPROVED"&&<button onClick={()=>action(`/it/access-requests/${x.id}/fulfil`,{})} className="text-violet-700">Mark Fulfilled</button>}</span></td></tr>)}</tbody></table>;
+}
