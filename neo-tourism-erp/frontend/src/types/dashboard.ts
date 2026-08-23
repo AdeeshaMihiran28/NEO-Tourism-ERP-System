@@ -1,0 +1,6 @@
+export interface DashboardSection { kpis: Record<string, number>; }
+export interface SalesDashboardSection extends DashboardSection { conversion: { totalLeads: number; eligibleLeads: number; saleMadeCount: number; conversionRate: number; definition: string }; ageing: Record<string, number>; pipeline: Record<string, number>; }
+export interface OperationsDashboardSection extends DashboardSection { upcomingTravel: { id: string; folderNumber: string; destination: string; travelStartDate: string; operationsStatus: string; window: string; customer: { firstName: string; lastName: string }; operationsOwner: { firstName: string; lastName: string } | null }[]; }
+export interface AccountsDashboardSection extends DashboardSection { financials?: { currency: string; totalSalesValue: number; expectedProfit: number; outstandingPassengerBalance: number; outstandingSupplierBalance: number }[]; }
+export interface RecentActivity { id: string; action: string; entityType: string; actorName: string; createdAt: string; }
+export interface DashboardResponse { sales?: SalesDashboardSection; operations?: OperationsDashboardSection; accounts?: AccountsDashboardSection; hr?: DashboardSection; it?: DashboardSection; recentActivity: RecentActivity[]; recentNotifications?: { id: string; title: string; message: string; isRead: boolean; createdAt: string }[]; }
