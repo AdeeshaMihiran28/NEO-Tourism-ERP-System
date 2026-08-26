@@ -1,0 +1,6 @@
+export type DealStatus="DRAFT"|"SCHEDULED"|"LIVE"|"EXPIRING"|"EXPIRED"|"SUSPENDED";
+export type ApprovalStatus="DRAFT"|"PENDING_APPROVAL"|"APPROVED"|"REJECTED";
+export type DealChannel={id:string;channel:string;status:string;externalReference:string|null;publishedAt:string|null};
+export type MarketingDeal={id:string;dealCode:string;title:string;shortDescription:string|null;destination:string;departureLocation:string;departureDate:string|null;travelStartDate:string;travelEndDate:string;price:string;currency:string;baggage:string|null;keyTerms:string;expiryAt:string;scheduledFor:string|null;status:DealStatus;approvalStatus:ApprovalStatus;contentReviewRequired:boolean;websitePublicationStatus:string;websiteActionMessage:string|null;suspensionReason:string|null;createdAt:string;createdBy?:{id:string;firstName:string;lastName:string};channels?:DealChannel[];auditHistory?:Array<{id:string;action:string;createdAt:string;actor:{firstName:string;lastName:string}}>};
+export type DealList={data:MarketingDeal[];pagination:{page:number;limit:number;total:number;totalPages:number}};
+export type DealSummary={live:number;scheduled:number;expiring:number;expired:number;expiredToday:number;suspended:number;pendingApproval:number};

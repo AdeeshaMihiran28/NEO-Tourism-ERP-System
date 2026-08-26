@@ -1,0 +1,4 @@
+export type CalendarView = "day" | "week" | "month";
+export type CalendarEvent = { id:string; title:string; description:string|null; entryType:string; startAt:string; endAt:string|null; allDay:boolean; status:string; source:"INTERNAL"|"META"|"WEBSITE"|"OTHER_INTEGRATION"; channel:string|null; campaignId:string|null; dealId:string|null; contentId:string|null; publicationId:string|null; assignedUserId:string|null; editable:boolean; reschedulable:boolean; href:string|null; externalPublishStatus?:"VERIFIED"|"NOT_VERIFIED" };
+export type MarketingAlert = { type:string; title:string; message:string; severity:"INFO"|"WARNING"|"URGENT"; relatedEntityType:string|null; relatedEntityId:string|null };
+export type MetaStatus = { status:"NOT_CONFIGURED"|"CONNECTED"|"DEGRADED"|"ERROR"|"DISABLED"; facebook:boolean; instagram:boolean; mock:boolean; lastSyncedAt:string|null; message:string|null };
