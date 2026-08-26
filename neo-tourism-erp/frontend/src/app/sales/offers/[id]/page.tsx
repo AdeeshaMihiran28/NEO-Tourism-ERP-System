@@ -1,0 +1,9 @@
+"use client";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect,useState } from "react";
+import { Badge,date,dateTime } from "@/components/marketing-deals-workspace";
+import { apiFetch } from "@/lib/api/client";
+import type { MarketingDeal } from "@/types/marketing";
+export default function Page(){const {id}=useParams<{id:string}>();const [deal,setDeal]=useState<MarketingDeal|null>(null);const [error,setError]=useState("");useEffect(()=>{void apiFetch<MarketingDeal>(`/marketing/deals/sales/available/${id}`).then(setDeal).catch(e=>setError(e instanceof Error?e.message:"Offer unavailable."))},[id]);if(!deal)return <main className="p-8">{error||"Loading…"}</main>;return <main className="mx-auto max-w-4xl px-5 py-8"><Link href="/sales/offers" className="text-sm font-semibold text-cyan-700">← Approved offers</Link><div className="mt-5 rounded-2xl border bg-white p-7"><div className="flex justify-between"><span className="font-mono text-sm text-slate-500">{deal.dealCode}</span><Badge value={deal.status}/></div><h1 className="mt-4 text-3xl font-semibold">{deal.title}</h1><p className="mt-2 text-5xl font-bold text-cyan-800">{deal.currency} {deal.price}</p><div className="mt-7 grid gap-5 sm:grid-cols-2"><Info label="Destination" value={deal.destination}/><Info label="Departure" value={deal.departureLocation}/><Info label="Travel" value={`${date(deal.travelStartDate)} – ${date(deal.travelEndDate)}`}/><Info label="Baggage" value={deal.baggage??"—"}/><Info label="Expiry" value={dateTime(deal.expiryAt)}/><Info label="Key terms" value={deal.keyTerms}/></div></div></main>}
+function Info({label,value}:{label:string;value:string}){return <div><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-1 whitespace-pre-wrap">{value}</p></div>}
