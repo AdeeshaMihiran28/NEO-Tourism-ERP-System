@@ -1,9 +1,17 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { AuthenticatedUser } from '../auth/auth.types';
+import { AuditService } from '../audit/audit.service';
 import { isUniqueConstraintError } from '../common/prisma-errors';
+import {
+  PRIVILEGED_PERMISSION_CODES,
+  PRIVILEGED_ROLE_NAMES,
+} from '../common/privileged-access';
+import type { RequestMetadata } from '../common/request-metadata';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateRoleDto } from './dto/create-role.dto';
 import type { SetRolePermissionsDto } from './dto/set-role-permissions.dto';
@@ -13,11 +21,28 @@ const roleInclude = {
   permissions: {
     include: { permission: true },
   },
+  users: {
+    select: {
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          isActive: true,
+        },
+      },
+    },
+  },
+  _count: { select: { users: true } },
 };
 
 @Injectable()
 export class RolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   findAll() {
     return this.prisma.role.findMany({
@@ -26,14 +51,33 @@ export class RolesService {
     });
   }
 
-  async create(dto: CreateRoleDto) {
+  async create(
+    dto: CreateRoleDto,
+    actor: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
+  ) {
     const name = dto.name.trim().toUpperCase();
+    this.assertPrivilegedRoleAllowed(name, actor);
     await this.ensureNameAvailable(name);
 
     try {
-      return await this.prisma.role.create({
-        data: { name, description: dto.description?.trim() },
-        include: roleInclude,
+      return await this.prisma.$transaction(async (transaction) => {
+        const role = await transaction.role.create({
+          data: { name, description: dto.description?.trim() },
+          include: roleInclude,
+        });
+        await this.auditService.log(
+          {
+            actorUserId: actor.id,
+            entityType: 'Role',
+            entityId: role.id,
+            action: 'ROLE_CREATED',
+            newValues: { name: role.name, description: role.description },
+            requestMetadata,
+          },
+          transaction,
+        );
+        return role;
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -43,24 +87,57 @@ export class RolesService {
     }
   }
 
-  async update(id: string, dto: UpdateRoleDto) {
+  async update(
+    id: string,
+    dto: UpdateRoleDto,
+    actor: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
+  ) {
     await this.ensureExists(id);
     const name = dto.name?.trim().toUpperCase();
+
+    const current = await this.prisma.role.findUniqueOrThrow({
+      where: { id },
+      select: { name: true },
+    });
+    this.assertPrivilegedRoleAllowed(current.name, actor);
+    if (name) this.assertPrivilegedRoleAllowed(name, actor);
 
     if (name) {
       await this.ensureNameAvailable(name, id);
     }
 
     try {
-      return await this.prisma.role.update({
-        where: { id },
-        data: {
-          ...(name !== undefined && { name }),
-          ...(dto.description !== undefined && {
-            description: dto.description.trim(),
-          }),
-        },
-        include: roleInclude,
+      return await this.prisma.$transaction(async (transaction) => {
+        const existing = await transaction.role.findUniqueOrThrow({
+          where: { id },
+        });
+        const role = await transaction.role.update({
+          where: { id },
+          data: {
+            ...(name !== undefined && { name }),
+            ...(dto.description !== undefined && {
+              description: dto.description.trim(),
+            }),
+          },
+          include: roleInclude,
+        });
+        await this.auditService.log(
+          {
+            actorUserId: actor.id,
+            entityType: 'Role',
+            entityId: role.id,
+            action: 'ROLE_UPDATED',
+            oldValues: {
+              name: existing.name,
+              description: existing.description,
+            },
+            newValues: { name: role.name, description: role.description },
+            requestMetadata,
+          },
+          transaction,
+        );
+        return role;
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -70,11 +147,19 @@ export class RolesService {
     }
   }
 
-  async setPermissions(id: string, dto: SetRolePermissionsDto) {
+  async setPermissions(
+    id: string,
+    dto: SetRolePermissionsDto,
+    actor: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
+  ) {
     return this.prisma.$transaction(async (transaction) => {
       const role = await transaction.role.findUnique({
         where: { id },
-        select: { id: true },
+        include: {
+          permissions: { select: { permissionId: true } },
+          users: { where: { userId: actor.id }, select: { userId: true } },
+        },
       });
 
       if (!role) {
@@ -82,13 +167,47 @@ export class RolesService {
       }
 
       const uniquePermissionIds = [...new Set(dto.permissionIds)];
-      const permissionCount = await transaction.permission.count({
+      const selectedPermissions = await transaction.permission.findMany({
         where: { id: { in: uniquePermissionIds } },
+        select: { id: true, code: true },
       });
 
-      if (permissionCount !== uniquePermissionIds.length) {
+      if (selectedPermissions.length !== uniquePermissionIds.length) {
         throw new NotFoundException('One or more permissions were not found.');
       }
+      this.assertPrivilegedRoleAllowed(role.name, actor);
+      const existingPermissionIds = role.permissions.map(
+        ({ permissionId }) => permissionId,
+      );
+      const addsPermissions = uniquePermissionIds.some(
+        (permissionId) => !existingPermissionIds.includes(permissionId),
+      );
+      if (
+        addsPermissions &&
+        role.users.length &&
+        !actor.permissions.includes('user.manage_privileged_roles')
+      )
+        throw new ForbiddenException(
+          'You cannot expand permissions on a role assigned to yourself.',
+        );
+      if (
+        selectedPermissions.some(({ code }) =>
+          PRIVILEGED_PERMISSION_CODES.includes(code),
+        ) &&
+        !actor.permissions.includes('user.manage_privileged_roles')
+      )
+        throw new ForbiddenException(
+          'Privileged permissions require privileged-role authority.',
+        );
+      if (
+        selectedPermissions.some(
+          ({ code }) => code === 'organization.owner.manage',
+        ) &&
+        !actor.permissions.includes('organization.owner.manage')
+      )
+        throw new ForbiddenException(
+          'Owner permission assignment is not permitted.',
+        );
 
       await transaction.rolePermission.deleteMany({ where: { roleId: id } });
 
@@ -102,10 +221,27 @@ export class RolesService {
         });
       }
 
-      return transaction.role.findUniqueOrThrow({
+      const updated = await transaction.role.findUniqueOrThrow({
         where: { id },
         include: roleInclude,
       });
+      await this.auditService.log(
+        {
+          actorUserId: actor.id,
+          entityType: 'Role',
+          entityId: id,
+          action: 'ROLE_PERMISSION_UPDATED',
+          oldValues: {
+            permissionIds: role.permissions
+              .map(({ permissionId }) => permissionId)
+              .sort(),
+          },
+          newValues: { permissionIds: [...uniquePermissionIds].sort() },
+          requestMetadata,
+        },
+        transaction,
+      );
+      return updated;
     });
   }
 
@@ -118,6 +254,22 @@ export class RolesService {
     if (!role) {
       throw new NotFoundException('Role not found.');
     }
+  }
+
+  private assertPrivilegedRoleAllowed(
+    roleName: string,
+    actor: AuthenticatedUser,
+  ) {
+    if (!PRIVILEGED_ROLE_NAMES.includes(roleName)) return;
+    if (!actor.permissions.includes('user.manage_privileged_roles'))
+      throw new ForbiddenException(
+        'Privileged role management is not permitted.',
+      );
+    if (
+      roleName === 'OWNER' &&
+      !actor.permissions.includes('organization.owner.manage')
+    )
+      throw new ForbiddenException('Owner role management is not permitted.');
   }
 
   private async ensureNameAvailable(

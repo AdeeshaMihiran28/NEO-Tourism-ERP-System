@@ -4,6 +4,7 @@ import {
   IsArray,
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -11,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class CreateUserDto {
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

@@ -59,6 +59,7 @@ const submissionInclude = {
       assignedUserId: true,
     },
   },
+  booking: { select: { id: true, folderNumber: true } },
 } satisfies Prisma.SaleSubmissionInclude;
 
 @Injectable()
@@ -106,6 +107,10 @@ export class SalesService {
             salesNotes: lead.salesNotes,
           },
           include: submissionInclude,
+        });
+        await transaction.marketingAttribution.updateMany({
+          where: { leadId: lead.id, isActive: true },
+          data: { saleSubmissionId: submission.id },
         });
         await transaction.leadActivity.create({
           data: {

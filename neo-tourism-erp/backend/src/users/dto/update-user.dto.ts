@@ -1,4 +1,5 @@
 import {
+  ArrayNotEmpty,
   ArrayUnique,
   IsArray,
   IsEmail,
@@ -11,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class UpdateUserDto {
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
   @IsOptional()
   @IsString()
   @IsNotEmpty()
@@ -40,6 +45,7 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayNotEmpty()
   @ArrayUnique()
   @IsUUID('4', { each: true })
   roleIds?: string[];
