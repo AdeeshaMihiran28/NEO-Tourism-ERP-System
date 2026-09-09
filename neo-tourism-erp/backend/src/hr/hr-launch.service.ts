@@ -16,6 +16,7 @@ import {
   LeaveApprovalLevel,
   LeaveApprovalStatus,
   LeaveRequestStatus,
+  LeaveType,
   NotificationType,
   Prisma,
 } from '../../generated/prisma/client';
@@ -40,6 +41,7 @@ import {
   ImportEmployeesDto,
   LeaveBalanceQueryDto,
   LeaveCalendarQueryDto,
+  RejectLeaveDto,
   ReviewAccessDto,
   SetCustomFieldValueDto,
   StartProcessDto,
@@ -60,8 +62,8 @@ const basicEmployee = {
   lastName: true,
   workEmail: true,
   workPhone: true,
-  phone: true,
   jobTitle: true,
+  organizationLevel: true,
   employmentType: true,
   employmentStatus: true,
   joinDate: true,
@@ -87,7 +89,10 @@ export class HrLaunchService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async validateManager(employeeId: string | undefined, managerId?: string) {
+  async validateManager(
+    employeeId: string | undefined,
+    managerId?: string | null,
+  ) {
     if (!managerId) return;
     if (employeeId === managerId)
       throw new BadRequestException('An employee cannot manage themselves.');
@@ -117,6 +122,7 @@ export class HrLaunchService {
     employee: {
       id: string;
       jobTitle: string;
+      organizationLevel: string;
       departmentId: string;
       managerId: string | null;
       employmentType: Prisma.EmployeeCreateInput['employmentType'];
@@ -130,6 +136,7 @@ export class HrLaunchService {
       data: {
         employeeId: employee.id,
         jobTitle: employee.jobTitle,
+        organizationLevel: employee.organizationLevel as never,
         departmentId: employee.departmentId,
         managerId: employee.managerId,
         employmentType: employee.employmentType,
@@ -146,6 +153,7 @@ export class HrLaunchService {
       id: string;
       userId: string | null;
       jobTitle: string;
+      organizationLevel: string;
       departmentId: string;
       managerId: string | null;
       employmentType: string;
@@ -154,6 +162,7 @@ export class HrLaunchService {
     },
     next: {
       jobTitle?: string;
+      organizationLevel?: string;
       departmentId?: string;
       managerId?: string | null;
       employmentType?: string;
@@ -162,9 +171,13 @@ export class HrLaunchService {
     actorId: string,
     reason: string | undefined,
     meta?: RequestMetadata,
+    client?: Prisma.TransactionClient,
   ) {
     const changes = {
       jobTitle: next.jobTitle !== undefined && next.jobTitle !== old.jobTitle,
+      organizationLevel:
+        next.organizationLevel !== undefined &&
+        next.organizationLevel !== old.organizationLevel,
       department:
         next.departmentId !== undefined &&
         next.departmentId !== old.departmentId,
@@ -182,24 +195,29 @@ export class HrLaunchService {
       ? EmploymentChangeType.DEPARTMENT_CHANGE
       : changes.manager
         ? EmploymentChangeType.MANAGER_CHANGE
-        : changes.jobTitle
-          ? EmploymentChangeType.JOB_TITLE_CHANGE
-          : changes.employmentType
-            ? EmploymentChangeType.EMPLOYMENT_TYPE_CHANGE
-            : EmploymentChangeType.STATUS_CHANGE;
+        : changes.organizationLevel
+          ? EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+          : changes.jobTitle
+            ? EmploymentChangeType.JOB_TITLE_CHANGE
+            : changes.employmentType
+              ? EmploymentChangeType.EMPLOYMENT_TYPE_CHANGE
+              : EmploymentChangeType.STATUS_CHANGE;
     const triggerType = changes.department
       ? AccessReviewTriggerType.DEPARTMENT_CHANGE
       : changes.manager
         ? AccessReviewTriggerType.MANAGER_CHANGE
-        : changes.jobTitle
-          ? AccessReviewTriggerType.JOB_TITLE_CHANGE
-          : AccessReviewTriggerType.STATUS_CHANGE;
+        : changes.organizationLevel
+          ? AccessReviewTriggerType.ORGANIZATION_LEVEL_CHANGE
+          : changes.jobTitle
+            ? AccessReviewTriggerType.JOB_TITLE_CHANGE
+            : AccessReviewTriggerType.STATUS_CHANGE;
 
-    await this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const history = await tx.employmentHistory.create({
         data: {
           employeeId: old.id,
           jobTitle: old.jobTitle,
+          organizationLevel: old.organizationLevel as never,
           departmentId: old.departmentId,
           managerId: old.managerId,
           employmentType: old.employmentType as never,
@@ -247,21 +265,35 @@ export class HrLaunchService {
       if (
         changeType === EmploymentChangeType.MANAGER_CHANGE ||
         changeType === EmploymentChangeType.DEPARTMENT_CHANGE ||
-        changeType === EmploymentChangeType.JOB_TITLE_CHANGE
+        changeType === EmploymentChangeType.JOB_TITLE_CHANGE ||
+        changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
       ) {
         const action =
           changeType === EmploymentChangeType.MANAGER_CHANGE
             ? 'EMPLOYEE_MANAGER_CHANGED'
             : changeType === EmploymentChangeType.DEPARTMENT_CHANGE
               ? 'EMPLOYEE_DEPARTMENT_CHANGED'
-              : 'EMPLOYEE_JOB_TITLE_CHANGED';
+              : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                ? 'EMPLOYEE_ORG_LEVEL_CHANGED'
+                : 'EMPLOYEE_JOB_TITLE_CHANGED';
         await this.audit.log(
           {
             actorUserId: actorId,
             entityType: 'Employee',
             entityId: old.id,
             action,
-            newValues: { changeType },
+            oldValues:
+              changeType === EmploymentChangeType.MANAGER_CHANGE
+                ? { managerId: old.managerId }
+                : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                  ? { organizationLevel: old.organizationLevel }
+                  : { changeType },
+            newValues:
+              changeType === EmploymentChangeType.MANAGER_CHANGE
+                ? { managerId: next.managerId ?? null }
+                : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                  ? { organizationLevel: next.organizationLevel ?? null }
+                  : { changeType },
             requestMetadata: meta,
           },
           tx,
@@ -297,7 +329,71 @@ export class HrLaunchService {
           ),
         ),
       );
+    };
+    await (client ? run(client) : this.prisma.$transaction(run));
+  }
+
+  async flagErpAccessIfRequired(
+    employee: {
+      id: string;
+      userId: string | null;
+      employeeNumber: string;
+      firstName: string;
+      lastName: string;
+    },
+    oldStatus: string,
+    newStatus: string,
+    actorId: string,
+    meta: RequestMetadata | undefined,
+    client: Prisma.TransactionClient,
+  ) {
+    const finalStatuses = new Set<string>([
+      EmploymentStatus.INACTIVE,
+      EmploymentStatus.TERMINATED,
+    ]);
+    if (
+      !employee.userId ||
+      finalStatuses.has(oldStatus) ||
+      !finalStatuses.has(newStatus)
+    )
+      return;
+
+    const user = await client.user.findUnique({
+      where: { id: employee.userId },
+      select: { isActive: true },
     });
+    if (!user?.isActive) return;
+
+    await this.audit.log(
+      {
+        actorUserId: actorId,
+        entityType: 'Employee',
+        entityId: employee.id,
+        action: 'ERP_ACCESS_DISABLE_REQUIRED',
+        oldValues: { employmentStatus: oldStatus, userActive: true },
+        newValues: { employmentStatus: newStatus, userActive: true },
+        requestMetadata: meta,
+      },
+      client,
+    );
+    const reviewers = await this.userIdsWithPermission('user.edit', client);
+    await Promise.all(
+      reviewers
+        .filter((userId) => userId !== employee.userId)
+        .map((userId) =>
+          this.notifications.create(
+            {
+              userId,
+              type: NotificationType.ACCESS_REVIEW_REQUIRED,
+              title: 'ERP access disable required',
+              message: `ERP access must be disabled for ${employee.employeeNumber} — ${employee.firstName} ${employee.lastName}.`,
+              entityType: 'User',
+              entityId: employee.userId!,
+            },
+            client,
+          ),
+        ),
+    );
   }
 
   employmentHistory(employeeId: string) {
@@ -317,6 +413,7 @@ export class HrLaunchService {
         workEmail: true,
         workPhone: true,
         jobTitle: true,
+        organizationLevel: true,
         employmentStatus: true,
         managerId: true,
         department: { select: { id: true, name: true } },
@@ -816,39 +913,30 @@ export class HrLaunchService {
     leave: { id: string; employeeId: string; leaveType: string },
     client: Prisma.TransactionClient = this.prisma,
   ) {
-    const today = utcDay(new Date());
-    const assignment = await client.employeeLeavePolicy.findFirst({
-      where: {
-        employeeId: leave.employeeId,
-        effectiveFrom: { lte: today },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
-        leavePolicy: {
-          leaveType: leave.leaveType as never,
-          isActive: true,
-        },
-      },
-      select: { id: true },
-    });
-    if (!assignment) return;
     const policy = await client.leaveApprovalPolicy.findUnique({
       where: { leaveType: leave.leaveType as never },
     });
-    if (!policy?.isActive) return;
     const employee = await client.employee.findUnique({
       where: { id: leave.employeeId },
       select: { manager: { select: { userId: true } } },
     });
-    if (policy.requiresManagerApproval && employee?.manager?.userId) {
+    const managerUserId = employee?.manager?.userId;
+    const managerRequired =
+      (policy?.isActive ? policy.requiresManagerApproval : true) &&
+      Boolean(managerUserId);
+    const hrRequired =
+      (policy?.isActive ? policy.requiresHrApproval : true) || !managerRequired;
+    if (managerRequired && managerUserId) {
       await client.leaveApproval.create({
         data: {
           leaveRequestId: leave.id,
           approvalLevel: LeaveApprovalLevel.MANAGER,
-          approverUserId: employee.manager.userId,
+          approverUserId: managerUserId,
         },
       });
       await this.notifications.create(
         {
-          userId: employee.manager.userId,
+          userId: managerUserId,
           type: NotificationType.LEAVE_APPROVAL_REQUIRED,
           title: 'Manager leave approval required',
           message: 'A direct report submitted a leave request.',
@@ -858,32 +946,14 @@ export class HrLaunchService {
         client,
       );
     }
-    if (policy.requiresHrApproval) {
+    if (hrRequired) {
       await client.leaveApproval.create({
         data: {
           leaveRequestId: leave.id,
           approvalLevel: LeaveApprovalLevel.HR,
         },
       });
-      const reviewers = await this.userIdsWithPermission(
-        'hr.leave.hr_approve',
-        client,
-      );
-      await Promise.all(
-        reviewers.map((userId) =>
-          this.notifications.create(
-            {
-              userId,
-              type: NotificationType.LEAVE_APPROVAL_REQUIRED,
-              title: 'HR leave approval required',
-              message: 'A leave request requires HR review.',
-              entityType: 'LeaveRequest',
-              entityId: leave.id,
-            },
-            client,
-          ),
-        ),
-      );
+      if (!managerRequired) await this.notifyHrReviewers(leave.id, client);
     }
   }
 
@@ -931,67 +1001,219 @@ export class HrLaunchService {
     if (approval.status !== LeaveApprovalStatus.PENDING)
       throw new ConflictException('This approval step was already reviewed.');
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.leaveApproval.update({
-        where: { id: approval.id },
-        data: {
-          approverUserId: actor.id,
-          status: LeaveApprovalStatus.APPROVED,
-          comment: dto.comment,
-          reviewedAt: new Date(),
-        },
-      });
-      const remaining = await tx.leaveApproval.count({
-        where: {
-          leaveRequestId: id,
-          status: LeaveApprovalStatus.PENDING,
-          id: { not: approval.id },
-        },
-      });
-      if (remaining === 0) {
-        await this.deductLeaveBalance(leave, tx);
-        await tx.leaveRequest.update({
-          where: { id },
+    return this.prisma.$transaction(
+      async (tx) => {
+        const reviewedAt = new Date();
+        const claimed = await tx.leaveApproval.updateMany({
+          where: { id: approval.id, status: LeaveApprovalStatus.PENDING },
           data: {
-            status: LeaveRequestStatus.APPROVED,
-            reviewedById: actor.id,
-            reviewedAt: new Date(),
+            approverUserId: actor.id,
+            status: LeaveApprovalStatus.APPROVED,
+            comment: dto.comment,
+            reviewedAt,
           },
         });
+        if (claimed.count !== 1)
+          throw new ConflictException(
+            'This approval step was already reviewed.',
+          );
+        const remaining = await tx.leaveApproval.count({
+          where: {
+            leaveRequestId: id,
+            status: LeaveApprovalStatus.PENDING,
+          },
+        });
+        if (remaining === 0) {
+          const finalized = await tx.leaveRequest.updateMany({
+            where: { id, status: LeaveRequestStatus.PENDING },
+            data: {
+              status: LeaveRequestStatus.APPROVED,
+              reviewedById: actor.id,
+              reviewedAt,
+            },
+          });
+          if (finalized.count !== 1)
+            throw new ConflictException('Leave request is no longer pending.');
+          await this.deductLeaveBalance(leave, tx);
+          await this.audit.log(
+            {
+              actorUserId: actor.id,
+              entityType: 'LeaveBalance',
+              entityId: leave.employeeId,
+              action: 'LEAVE_BALANCE_UPDATED',
+              newValues: {
+                leaveRequestId: id,
+                leaveType: leave.leaveType,
+              },
+              requestMetadata: meta,
+            },
+            tx,
+          );
+          if (leave.employee.userId)
+            await this.notifications.create(
+              {
+                userId: leave.employee.userId,
+                type: NotificationType.LEAVE_APPROVED,
+                title: 'Leave request approved',
+                message: 'Your leave request was approved.',
+                entityType: 'LeaveRequest',
+                entityId: id,
+              },
+              tx,
+            );
+        } else if (level === LeaveApprovalLevel.MANAGER) {
+          await this.notifyHrReviewers(id, tx);
+        }
         await this.audit.log(
           {
             actorUserId: actor.id,
-            entityType: 'LeaveBalance',
-            entityId: leave.employeeId,
-            action: 'LEAVE_BALANCE_UPDATED',
-            newValues: {
-              leaveRequestId: id,
-              leaveType: leave.leaveType,
-            },
+            entityType: 'LeaveRequest',
+            entityId: id,
+            action:
+              level === LeaveApprovalLevel.MANAGER
+                ? 'LEAVE_MANAGER_APPROVED'
+                : 'LEAVE_HR_APPROVED',
+            newValues: { level, finalApproval: remaining === 0 },
             requestMetadata: meta,
           },
           tx,
         );
-      }
-      await this.audit.log(
-        {
-          actorUserId: actor.id,
-          entityType: 'LeaveRequest',
-          entityId: id,
-          action:
-            level === LeaveApprovalLevel.MANAGER
-              ? 'LEAVE_MANAGER_APPROVED'
-              : 'LEAVE_HR_APPROVED',
-          newValues: { level, finalApproval: remaining === 0 },
-          requestMetadata: meta,
-        },
-        tx,
-      );
-      return tx.leaveRequest.findUniqueOrThrow({
-        where: { id },
-        include: { approvals: true },
-      });
+        return tx.leaveRequest.findUniqueOrThrow({
+          where: { id },
+          include: {
+            approvals: {
+              include: {
+                approver: {
+                  select: { id: true, firstName: true, lastName: true },
+                },
+              },
+            },
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  async rejectLeaveLevel(
+    id: string,
+    level: LeaveApprovalLevel,
+    dto: RejectLeaveDto,
+    actor: AuthenticatedUser,
+    meta?: RequestMetadata,
+  ) {
+    const leave = await this.prisma.leaveRequest.findUnique({
+      where: { id },
+      include: { employee: true, approvals: true },
     });
+    if (!leave) throw new NotFoundException('Leave request not found.');
+    if (leave.status !== LeaveRequestStatus.PENDING)
+      throw new ConflictException('Leave request is no longer pending.');
+    if (
+      level === LeaveApprovalLevel.HR &&
+      leave.approvals.some(
+        (item) =>
+          item.approvalLevel === LeaveApprovalLevel.MANAGER &&
+          item.status !== LeaveApprovalStatus.APPROVED,
+      )
+    )
+      throw new ConflictException(
+        'Manager approval must be completed before HR review.',
+      );
+    if (level === LeaveApprovalLevel.MANAGER) {
+      const manager = leave.employee.managerId
+        ? await this.prisma.employee.findUnique({
+            where: { id: leave.employee.managerId },
+          })
+        : null;
+      if (!manager?.userId || manager.userId !== actor.id)
+        throw new ForbiddenException(
+          'Only the employee’s direct manager may review this step.',
+        );
+    }
+    const approval = leave.approvals.find(
+      (item) => item.approvalLevel === level,
+    );
+    if (!approval)
+      throw new ConflictException('This approval level is not required.');
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const reviewedAt = new Date();
+        const claimed = await tx.leaveApproval.updateMany({
+          where: { id: approval.id, status: LeaveApprovalStatus.PENDING },
+          data: {
+            approverUserId: actor.id,
+            status: LeaveApprovalStatus.REJECTED,
+            comment: dto.reason,
+            reviewedAt,
+          },
+        });
+        if (claimed.count !== 1)
+          throw new ConflictException(
+            'This approval step was already reviewed.',
+          );
+        if (level === LeaveApprovalLevel.MANAGER)
+          await tx.leaveApproval.deleteMany({
+            where: {
+              leaveRequestId: id,
+              approvalLevel: LeaveApprovalLevel.HR,
+              status: LeaveApprovalStatus.PENDING,
+            },
+          });
+        const finalized = await tx.leaveRequest.updateMany({
+          where: { id, status: LeaveRequestStatus.PENDING },
+          data: {
+            status: LeaveRequestStatus.REJECTED,
+            reviewedById: actor.id,
+            reviewedAt,
+            reviewNotes: dto.reason,
+          },
+        });
+        if (finalized.count !== 1)
+          throw new ConflictException('Leave request is no longer pending.');
+        await this.audit.log(
+          {
+            actorUserId: actor.id,
+            entityType: 'LeaveRequest',
+            entityId: id,
+            action:
+              level === LeaveApprovalLevel.MANAGER
+                ? 'LEAVE_MANAGER_REJECTED'
+                : 'LEAVE_HR_REJECTED',
+            oldValues: { status: LeaveRequestStatus.PENDING },
+            newValues: { status: LeaveRequestStatus.REJECTED, level },
+            requestMetadata: meta,
+          },
+          tx,
+        );
+        if (leave.employee.userId)
+          await this.notifications.create(
+            {
+              userId: leave.employee.userId,
+              type: NotificationType.LEAVE_REJECTED,
+              title: 'Leave request rejected',
+              message: `Your leave request was rejected by ${level === LeaveApprovalLevel.MANAGER ? 'your manager' : 'HR'}.`,
+              entityType: 'LeaveRequest',
+              entityId: id,
+            },
+            tx,
+          );
+        return tx.leaveRequest.findUniqueOrThrow({
+          where: { id },
+          include: {
+            approvals: {
+              include: {
+                approver: {
+                  select: { id: true, firstName: true, lastName: true },
+                },
+              },
+            },
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async deductLeaveBalance(
@@ -1003,47 +1225,87 @@ export class HrLaunchService {
     },
     tx: Prisma.TransactionClient,
   ) {
+    const result = await this.leaveBalanceForRequest(leave, tx);
+    if (!result) return;
+    await tx.leaveBalance.update({
+      where: { id: result.balanceId },
+      data: {
+        used: { increment: result.days },
+        remainingBalance: { decrement: result.days },
+      },
+    });
+  }
+
+  async validateLeaveBalance(
+    leave: {
+      employeeId: string;
+      leaveType: string;
+      startDate: Date;
+      endDate: Date;
+    },
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
+    await this.leaveBalanceForRequest(leave, client);
+  }
+
+  private async leaveBalanceForRequest(
+    leave: {
+      employeeId: string;
+      leaveType: string;
+      startDate: Date;
+      endDate: Date;
+    },
+    client: Prisma.TransactionClient,
+  ) {
+    if (
+      leave.leaveType === LeaveType.UNPAID ||
+      leave.leaveType === LeaveType.OTHER
+    )
+      return null;
     const days = new Prisma.Decimal(
       Math.floor(
         (leave.endDate.getTime() - leave.startDate.getTime()) / 86400000,
       ) + 1,
     );
-    const year = leave.startDate.getUTCFullYear();
-    const balance = await tx.leaveBalance.findUnique({
-      where: {
-        employeeId_leaveType_year: {
-          employeeId: leave.employeeId,
-          leaveType: leave.leaveType as never,
-          year,
+    const [balance, assignment] = await Promise.all([
+      client.leaveBalance.findUnique({
+        where: {
+          employeeId_leaveType_year: {
+            employeeId: leave.employeeId,
+            leaveType: leave.leaveType as LeaveType,
+            year: leave.startDate.getUTCFullYear(),
+          },
         },
-      },
-    });
-    const assignment = await tx.employeeLeavePolicy.findFirst({
-      where: {
-        employeeId: leave.employeeId,
-        leavePolicy: { leaveType: leave.leaveType as never, isActive: true },
-        effectiveFrom: { lte: leave.startDate },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: leave.startDate } }],
-      },
-      include: { leavePolicy: true },
-      orderBy: { effectiveFrom: 'desc' },
-    });
+      }),
+      client.employeeLeavePolicy.findFirst({
+        where: {
+          employeeId: leave.employeeId,
+          leavePolicy: {
+            leaveType: leave.leaveType as LeaveType,
+            isActive: true,
+          },
+          effectiveFrom: { lte: leave.startDate },
+          OR: [
+            { effectiveTo: null },
+            { effectiveTo: { gte: leave.startDate } },
+          ],
+        },
+        include: { leavePolicy: true },
+        orderBy: { effectiveFrom: 'desc' },
+      }),
+    ]);
     if (!balance || !assignment)
       throw new ConflictException(
-        'No active leave balance/policy exists for this request.',
+        `No active ${leaveTypeLabel(leave.leaveType)} leave balance exists for this request.`,
       );
     if (
       !assignment.leavePolicy.allowNegativeBalance &&
       balance.remainingBalance.lessThan(days)
     )
-      throw new ConflictException('Insufficient leave balance.');
-    await tx.leaveBalance.update({
-      where: { id: balance.id },
-      data: {
-        used: { increment: days },
-        remainingBalance: { decrement: days },
-      },
-    });
+      throw new ConflictException(
+        `Insufficient ${leaveTypeLabel(leave.leaveType)} leave balance.`,
+      );
+    return { balanceId: balance.id, days };
   }
 
   myBalances(userId: string) {
@@ -1060,15 +1322,17 @@ export class HrLaunchService {
     return this.prisma.leaveRequest.findMany({
       where: {
         employee: { managerId: manager.id },
+      },
+      include: {
+        employee: { select: basicEmployee },
         approvals: {
-          some: {
-            approvalLevel: LeaveApprovalLevel.MANAGER,
-            status: LeaveApprovalStatus.PENDING,
+          include: {
+            approver: { select: { id: true, firstName: true, lastName: true } },
           },
         },
       },
-      include: { employee: { select: basicEmployee }, approvals: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
     });
   }
 
@@ -1088,10 +1352,13 @@ export class HrLaunchService {
     });
   }
 
-  leaveCalendar(query: LeaveCalendarQueryDto, actor: AuthenticatedUser) {
-    const managerScope = actor.permissions.includes('hr.leave.calendar.view')
+  async leaveCalendar(query: LeaveCalendarQueryDto, actor: AuthenticatedUser) {
+    const canViewAll =
+      actor.permissions.includes('hr.leave.hr_approve') ||
+      actor.permissions.includes('hr.report.view');
+    const managerScope = canViewAll
       ? query.managerId
-      : undefined;
+      : (await this.employeeForUser(actor.id)).id;
     return this.prisma.leaveRequest.findMany({
       where: {
         status: LeaveRequestStatus.APPROVED,
@@ -1254,6 +1521,12 @@ export class HrLaunchService {
     if (!template)
       throw new NotFoundException('Onboarding template not found.');
     return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.employee.updateMany({
+        where: { id: employeeId, onboardingStatus: 'NOT_STARTED' },
+        data: { onboardingStatus: 'IN_PROGRESS' },
+      });
+      if (!claimed.count)
+        throw new ConflictException('Onboarding has already been started.');
       const tasks = await Promise.all(
         template.tasks.map((task) =>
           tx.onboardingTask.create({
@@ -1272,10 +1545,6 @@ export class HrLaunchService {
           }),
         ),
       );
-      await tx.employee.update({
-        where: { id: employeeId },
-        data: { onboardingStatus: 'IN_PROGRESS' },
-      });
       for (const task of tasks) {
         if (!task.assignedRole) continue;
         const users = await tx.user.findMany({
@@ -1335,31 +1604,45 @@ export class HrLaunchService {
       ? dateOnly(dto.effectiveDate)
       : (employee.endDate ?? utcDay(new Date()));
     return this.prisma.$transaction(async (tx) => {
-      const tasks = await Promise.all(
-        template.tasks.map((task) =>
-          tx.offboardingTask.create({
-            data: {
-              employeeId,
-              title: task.title,
-              description: task.description,
-              category: task.category,
-              assignedRole: task.assignedRole,
-              dueDate:
-                task.dueDaysFromEnd === null
-                  ? null
-                  : addDays(baseDate, task.dueDaysFromEnd),
-              blocksCompletion: task.blocksCompletion,
-            },
-          }),
-        ),
-      );
-      await tx.employee.update({
-        where: { id: employeeId },
+      const claimed = await tx.employee.updateMany({
+        where: { id: employeeId, offboardingStatus: 'NOT_STARTED' },
         data: {
           offboardingStatus: 'IN_PROGRESS',
           employmentStatus: EmploymentStatus.NOTICE_PERIOD,
         },
       });
+      if (!claimed.count)
+        throw new ConflictException('Offboarding has already been started.');
+      const requiresErpDisable = employee.userId
+        ? Boolean(
+            await tx.user.count({
+              where: { id: employee.userId, isActive: true },
+            }),
+          )
+        : false;
+      const tasks = await Promise.all(
+        template.tasks
+          .filter(
+            (task) =>
+              requiresErpDisable || task.category !== HrTaskCategory.ACCESS,
+          )
+          .map((task) =>
+            tx.offboardingTask.create({
+              data: {
+                employeeId,
+                title: task.title,
+                description: task.description,
+                category: task.category,
+                assignedRole: task.assignedRole,
+                dueDate:
+                  task.dueDaysFromEnd === null
+                    ? null
+                    : addDays(baseDate, task.dueDaysFromEnd),
+                blocksCompletion: task.blocksCompletion,
+              },
+            }),
+          ),
+      );
       for (const task of tasks) {
         if (!task.assignedRole) continue;
         const users = await tx.user.findMany({
@@ -1385,23 +1668,24 @@ export class HrLaunchService {
           ),
         );
       }
-      const roles = employee.userId
+      const roles = requiresErpDisable
         ? await tx.userRole.findMany({
-            where: { userId: employee.userId },
+            where: { userId: employee.userId! },
             select: { roleId: true },
           })
         : [];
-      await tx.employeeAccessReview.create({
-        data: {
-          employeeId,
-          userId: employee.userId,
-          triggerType: AccessReviewTriggerType.OFFBOARDING,
-          oldDepartmentId: employee.departmentId,
-          newDepartmentId: employee.departmentId,
-          oldRoles: roles.map(({ roleId }) => roleId),
-          recommendedRoles: [],
-        },
-      });
+      if (requiresErpDisable)
+        await tx.employeeAccessReview.create({
+          data: {
+            employeeId,
+            userId: employee.userId,
+            triggerType: AccessReviewTriggerType.OFFBOARDING,
+            oldDepartmentId: employee.departmentId,
+            newDepartmentId: employee.departmentId,
+            oldRoles: roles.map(({ roleId }) => roleId),
+            recommendedRoles: [],
+          },
+        });
       await this.audit.log(
         {
           actorUserId: actorId,
@@ -1474,60 +1758,65 @@ export class HrLaunchService {
     meta?: RequestMetadata,
   ) {
     const completed = dto.status === HrTaskStatus.COMPLETED;
-    if (kind === 'onboarding' && completed) {
-      const current = await this.prisma.onboardingTask.findUnique({
-        where: { id },
-      });
-      if (!current) throw new NotFoundException('Onboarding task not found.');
-      if (current.requiresDocument && !dto.employeeDocumentId)
-        throw new BadRequestException(
-          'This task requires an employee document before completion.',
-        );
-      if (dto.employeeDocumentId) {
-        const document = await this.prisma.employeeDocument.findFirst({
-          where: {
-            id: dto.employeeDocumentId,
-            employeeId: current.employeeId,
-          },
-        });
-        if (!document)
+    return this.prisma.$transaction(async (tx) => {
+      if (kind === 'onboarding' && completed) {
+        const current = await tx.onboardingTask.findUnique({ where: { id } });
+        if (!current) throw new NotFoundException('Onboarding task not found.');
+        if (current.requiresDocument && !dto.employeeDocumentId)
+          throw new BadRequestException(
+            'This task requires an employee document before completion.',
+          );
+        if (
+          dto.employeeDocumentId &&
+          !(await tx.employeeDocument.findFirst({
+            where: {
+              id: dto.employeeDocumentId,
+              employeeId: current.employeeId,
+            },
+            select: { id: true },
+          }))
+        )
           throw new BadRequestException(
             'The selected document does not belong to this employee.',
           );
       }
-    }
-    const task =
-      kind === 'onboarding'
-        ? await this.prisma.onboardingTask.update({
-            where: { id },
-            data: {
-              status: dto.status,
-              employeeDocumentId: dto.employeeDocumentId,
-              completedById: completed ? actorId : null,
-              completedAt: completed ? new Date() : null,
-            },
-          })
-        : await this.prisma.offboardingTask.update({
-            where: { id },
-            data: {
-              status: dto.status,
-              completedById: completed ? actorId : null,
-              completedAt: completed ? new Date() : null,
-            },
-          });
-    await this.audit.log({
-      actorUserId: actorId,
-      entityType: kind === 'onboarding' ? 'OnboardingTask' : 'OffboardingTask',
-      entityId: id,
-      action:
+      const task =
         kind === 'onboarding'
-          ? 'ONBOARDING_TASK_COMPLETED'
-          : 'OFFBOARDING_TASK_COMPLETED',
-      newValues: { status: dto.status },
-      requestMetadata: meta,
+          ? await tx.onboardingTask.update({
+              where: { id },
+              data: {
+                status: dto.status,
+                employeeDocumentId: dto.employeeDocumentId,
+                completedById: completed ? actorId : null,
+                completedAt: completed ? new Date() : null,
+              },
+            })
+          : await tx.offboardingTask.update({
+              where: { id },
+              data: {
+                status: dto.status,
+                completedById: completed ? actorId : null,
+                completedAt: completed ? new Date() : null,
+              },
+            });
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType:
+            kind === 'onboarding' ? 'OnboardingTask' : 'OffboardingTask',
+          entityId: id,
+          action:
+            kind === 'onboarding'
+              ? 'ONBOARDING_TASK_COMPLETED'
+              : 'OFFBOARDING_TASK_COMPLETED',
+          newValues: { status: dto.status },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+      await this.refreshProcessStatus(task.employeeId, kind, tx);
+      return task;
     });
-    await this.refreshProcessStatus(task.employeeId, kind);
-    return task;
   }
 
   async completeOffboarding(
@@ -1542,6 +1831,7 @@ export class HrLaunchService {
         where: {
           employeeId,
           blocksCompletion: true,
+          category: { not: HrTaskCategory.ACCESS },
           status: { notIn: [HrTaskStatus.COMPLETED, HrTaskStatus.CANCELLED] },
         },
       }),
@@ -1554,53 +1844,44 @@ export class HrLaunchService {
         `Offboarding cannot complete: ${blockingTasks} blocking task(s) and ${outstandingAssets} outstanding asset(s).`,
       );
     return this.prisma.$transaction(async (tx) => {
-      const oldRoles = employee.userId
-        ? await tx.userRole.findMany({
-            where: { userId: employee.userId },
-            select: { roleId: true },
-          })
-        : [];
-      if (employee.userId) {
-        await tx.user.update({
-          where: { id: employee.userId },
-          data: { isActive: false },
-        });
-        await tx.userRole.deleteMany({ where: { userId: employee.userId } });
-      }
-      const updated = await tx.employee.update({
-        where: { id: employeeId },
+      const claimed = await tx.employee.updateMany({
+        where: { id: employeeId, offboardingStatus: { not: 'COMPLETED' } },
         data: {
           employmentStatus: EmploymentStatus.TERMINATED,
           offboardingStatus: 'COMPLETED',
-          erpAccountDisabled: true,
           endDate: employee.endDate ?? utcDay(new Date()),
         },
       });
-      const review = await tx.employeeAccessReview.create({
-        data: {
-          employeeId,
-          userId: employee.userId,
-          triggerType: AccessReviewTriggerType.OFFBOARDING,
-          oldDepartmentId: employee.departmentId,
-          newDepartmentId: employee.departmentId,
-          oldRoles: oldRoles.map(({ roleId }) => roleId),
-          recommendedRoles: [],
-          status: AccessReviewStatus.COMPLETED,
-          reviewedById: actorId,
-          reviewedAt: new Date(),
-          notes: reason,
-        },
+      if (!claimed.count)
+        throw new ConflictException('Offboarding has already been completed.');
+      const updated = await tx.employee.findUniqueOrThrow({
+        where: { id: employeeId },
       });
       await this.audit.log(
         {
           actorUserId: actorId,
-          entityType: 'EmployeeAccessReview',
-          entityId: review.id,
-          action: 'ERP_ACCESS_REVOKED',
-          oldValues: { roleIds: oldRoles.map(({ roleId }) => roleId) },
-          newValues: { userActive: false },
+          entityType: 'Employee',
+          entityId: employeeId,
+          action: 'OFFBOARDING_COMPLETED',
+          oldValues: {
+            employmentStatus: employee.employmentStatus,
+            offboardingStatus: employee.offboardingStatus,
+          },
+          newValues: {
+            employmentStatus: updated.employmentStatus,
+            offboardingStatus: updated.offboardingStatus,
+            reason: reason ?? null,
+          },
           requestMetadata: meta,
         },
+        tx,
+      );
+      await this.flagErpAccessIfRequired(
+        employee,
+        employee.employmentStatus,
+        updated.employmentStatus,
+        actorId,
+        meta,
         tx,
       );
       return updated;
@@ -1613,6 +1894,7 @@ export class HrLaunchService {
       where: { id: employee.id },
       select: {
         ...basicEmployee,
+        phone: true,
         personalEmail: true,
         address: true,
         emergencyContactName: true,
@@ -1902,6 +2184,7 @@ export class HrLaunchService {
     ] = await this.prisma.$transaction([
       this.prisma.employee.count({
         where: {
+          archivedAt: null,
           employmentStatus: {
             in: [
               EmploymentStatus.ACTIVE,
@@ -1914,6 +2197,7 @@ export class HrLaunchService {
       this.prisma.employee.groupBy({
         by: ['departmentId'],
         where: {
+          archivedAt: null,
           employmentStatus: {
             notIn: [EmploymentStatus.TERMINATED, EmploymentStatus.INACTIVE],
           },
@@ -1924,6 +2208,7 @@ export class HrLaunchService {
       this.prisma.employee.groupBy({
         by: ['employmentType'],
         where: {
+          archivedAt: null,
           employmentStatus: {
             notIn: [EmploymentStatus.TERMINATED, EmploymentStatus.INACTIVE],
           },
@@ -1987,10 +2272,11 @@ export class HrLaunchService {
   private async refreshProcessStatus(
     employeeId: string,
     kind: 'onboarding' | 'offboarding',
+    client: Prisma.TransactionClient = this.prisma,
   ) {
     const pending =
       kind === 'onboarding'
-        ? await this.prisma.onboardingTask.count({
+        ? await client.onboardingTask.count({
             where: {
               employeeId,
               status: {
@@ -1998,7 +2284,7 @@ export class HrLaunchService {
               },
             },
           })
-        : await this.prisma.offboardingTask.count({
+        : await client.offboardingTask.count({
             where: {
               employeeId,
               blocksCompletion: true,
@@ -2008,7 +2294,7 @@ export class HrLaunchService {
             },
           });
     if (kind === 'onboarding')
-      await this.prisma.employee.update({
+      await client.employee.update({
         where: { id: employeeId },
         data: { onboardingStatus: pending ? 'IN_PROGRESS' : 'COMPLETED' },
       });
@@ -2130,6 +2416,31 @@ export class HrLaunchService {
       });
   }
 
+  private async notifyHrReviewers(
+    leaveRequestId: string,
+    client: Prisma.TransactionClient,
+  ) {
+    const reviewers = await this.userIdsWithPermission(
+      'hr.leave.hr_approve',
+      client,
+    );
+    await Promise.all(
+      reviewers.map((userId) =>
+        this.notifications.create(
+          {
+            userId,
+            type: NotificationType.LEAVE_APPROVAL_REQUIRED,
+            title: 'HR leave approval required',
+            message: 'A leave request requires HR review.',
+            entityType: 'LeaveRequest',
+            entityId: leaveRequestId,
+          },
+          client,
+        ),
+      ),
+    );
+  }
+
   private async userIdsWithPermission(
     code: string,
     client: Prisma.TransactionClient = this.prisma,
@@ -2149,6 +2460,10 @@ export class HrLaunchService {
 
 function dateOnly(value: string) {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function leaveTypeLabel(value: string) {
+  return `${value[0]}${value.slice(1).toLowerCase()}`;
 }
 
 function utcDay(value: Date) {
