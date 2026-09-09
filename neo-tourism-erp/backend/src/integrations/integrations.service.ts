@@ -25,6 +25,11 @@ const providers = [
     type: IntegrationProviderType.WEBSITE,
     name: 'Neo Tourism Website',
   },
+  {
+    key: 'meta',
+    type: IntegrationProviderType.META,
+    name: 'Meta Business Suite',
+  },
 ] as const;
 
 @Injectable()
@@ -138,11 +143,22 @@ export class IntegrationsService {
       return telephonyConfigured();
     if (type === IntegrationProviderType.WEBSITE)
       return Boolean(process.env.WEBSITE_WEBHOOK_SECRET?.trim());
+    if (type === IntegrationProviderType.META)
+      return (
+        process.env.META_MOCK_ENABLED === 'true' ||
+        Boolean(
+          process.env.META_APP_ID?.trim() &&
+          process.env.META_APP_SECRET?.trim() &&
+          process.env.META_ACCESS_TOKEN?.trim(),
+        )
+      );
     return false;
   }
 
   private configuredStatus(type: IntegrationProviderType) {
-    return type === IntegrationProviderType.WEBSITE
+    return type === IntegrationProviderType.WEBSITE ||
+      (type === IntegrationProviderType.META &&
+        process.env.META_MOCK_ENABLED === 'true')
       ? IntegrationStatus.CONNECTED
       : IntegrationStatus.DEGRADED;
   }
