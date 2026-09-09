@@ -128,6 +128,8 @@ async function main() {
       ['accounts1', 'Accounts 1', 'Accounts', 'ACCOUNTS'],
       ['hr1', 'HR 1', 'HR', 'HR'],
       ['it1', 'IT 1', 'IT', 'IT'],
+      ['marketing1', 'Marketing User', 'Marketing', 'MARKETING'],
+      ['marketingmanager', 'Marketing Manager', 'Marketing', 'MARKETING_MANAGER'],
       ['employee1', 'Employee 1', 'Marketing', 'UAT_EMPLOYEE'],
     ] as const;
 
@@ -175,6 +177,9 @@ async function main() {
       ['operations1', ['finance.view', 'finance.reconcile', 'hr.leave.manage']],
       ['hr1', ['it.asset.create', 'it.ticket.manage', 'finance.view']],
       ['employee1', ['dashboard.management.view', 'user.view', 'audit.view']],
+      ['marketing1', ['marketing.deal.approve', 'marketing.approval.approve', 'finance.view']],
+      ['sales1', ['marketing.deal.edit', 'marketing.approval.approve', 'marketing.neotrio.production.edit']],
+      ['manager', ['marketing.deal.edit', 'marketing.content.edit', 'marketing.neotrio.production.edit']],
     ] as const;
     for (const [key, forbiddenCodes] of roleIsolationRules) {
       const user = users.get(key)!;
@@ -198,6 +203,8 @@ async function main() {
     const hr1 = users.get('hr1')!;
     const it1 = users.get('it1')!;
     const employee1 = users.get('employee1')!;
+    const marketing1 = users.get('marketing1')!;
+    const marketingManager = users.get('marketingmanager')!;
 
     const customerDefinitions = [
       {
@@ -818,6 +825,67 @@ async function main() {
         status: AccessRequestStatus.PENDING,
       },
     });
+
+    const uatDeal = await prisma.marketingDeal.upsert({
+      where: { dealCode: 'UAT-DEAL-DUBAI-SUMMER' },
+      update: { title: 'Dubai Summer Offer', status: 'DRAFT', approvalStatus: 'DRAFT', updatedById: marketing1.id },
+      create: {
+        id: stableId(24, 1), dealCode: 'UAT-DEAL-DUBAI-SUMMER', title: 'Dubai Summer Offer',
+        shortDescription: `${UAT_MARKER} Fictional offer for Marketing workflow testing.`, destination: 'Dubai',
+        departureLocation: 'Colombo', travelStartDate: daysFromNow(60), travelEndDate: daysFromNow(67),
+        price: new Prisma.Decimal('1250.00'), currency: 'USD', baggage: '23kg',
+        keyTerms: `${UAT_MARKER} Subject to fictional UAT availability.`, expiryAt: daysFromNow(30),
+        createdById: marketing1.id, updatedById: marketing1.id,
+      },
+    });
+    const uatCampaign = await prisma.marketingCampaign.upsert({
+      where: { campaignCode: 'UAT-CMP-DUBAI-SUMMER' },
+      update: { dealId: uatDeal.id, ownerUserId: marketingManager.id, updatedById: marketingManager.id },
+      create: {
+        id: stableId(25, 1), campaignCode: 'UAT-CMP-DUBAI-SUMMER', name: 'Dubai Summer Campaign',
+        description: `${UAT_MARKER} Safe fictional campaign.`, objective: 'Exercise the Marketing UAT workflow.',
+        status: 'PLANNED', startDate: daysFromNow(7), endDate: daysFromNow(28), dealId: uatDeal.id,
+        ownerUserId: marketingManager.id, createdById: marketing1.id, updatedById: marketingManager.id,
+      },
+    });
+    await prisma.marketingContent.upsert({
+      where: { contentCode: 'UAT-CONTENT-DUBAI-REEL' },
+      update: { campaignId: uatCampaign.id, dealId: uatDeal.id, assignedUserId: marketing1.id, updatedById: marketing1.id },
+      create: {
+        id: stableId(26, 1), contentCode: 'UAT-CONTENT-DUBAI-REEL', title: 'Dubai Instagram Reel',
+        description: `${UAT_MARKER} Creative starts at IDEA so UAT can test every controlled stage.`,
+        contentType: 'REEL', stage: 'IDEA', campaignId: uatCampaign.id, dealId: uatDeal.id,
+        assignedUserId: marketing1.id, deadline: daysFromNow(5), priority: 'HIGH',
+        createdById: marketing1.id, updatedById: marketing1.id,
+      },
+    });
+    const characters = await prisma.neoTrioCharacter.findMany({ where: { code: { in: ['RICKY', 'FLIP'] } } });
+    if (characters.length !== 2) throw new Error('Run the normal base seed so Ricky and Flip exist before the UAT seed.');
+    const uatIdea = await prisma.neoTrioIdea.upsert({
+      where: { ideaCode: 'UAT-NEO-IDEA-DUBAI' },
+      update: { status: 'CONVERTED', campaignId: uatCampaign.id, dealId: uatDeal.id, assignedUserId: marketing1.id },
+      create: {
+        id: stableId(27, 1), ideaCode: 'UAT-NEO-IDEA-DUBAI', title: 'Ricky + Flip Dubai Test Reel',
+        description: `${UAT_MARKER} Fictional NeoTrio concept.`, ideaType: 'REEL', destination: 'Dubai',
+        priority: 'HIGH', status: 'CONVERTED', submittedById: marketing1.id, assignedUserId: marketing1.id,
+        campaignId: uatCampaign.id, dealId: uatDeal.id,
+      },
+    });
+    const uatProduction = await prisma.neoTrioProduction.upsert({
+      where: { productionCode: 'UAT-NEOTRIO-DUBAI-REEL' },
+      update: { campaignId: uatCampaign.id, dealId: uatDeal.id, assignedUserId: marketing1.id, updatedById: marketing1.id },
+      create: {
+        id: stableId(28, 1), productionCode: 'UAT-NEOTRIO-DUBAI-REEL', title: 'Ricky + Flip Test Reel',
+        description: `${UAT_MARKER} Starts at IDEA for controlled production UAT.`, productionType: 'REEL', stage: 'IDEA',
+        ideaId: uatIdea.id, campaignId: uatCampaign.id, dealId: uatDeal.id, assignedUserId: marketing1.id,
+        deadline: daysFromNow(10), plannedPublishAt: daysFromNow(14), priority: 'HIGH',
+        createdById: marketing1.id, updatedById: marketing1.id,
+      },
+    });
+    await prisma.neoTrioIdeaCharacter.deleteMany({ where: { ideaId: uatIdea.id } });
+    await prisma.neoTrioProductionCharacter.deleteMany({ where: { productionId: uatProduction.id } });
+    await prisma.neoTrioIdeaCharacter.createMany({ data: characters.map(({ id: characterId }) => ({ ideaId: uatIdea.id, characterId })) });
+    await prisma.neoTrioProductionCharacter.createMany({ data: characters.map(({ id: characterId }) => ({ productionId: uatProduction.id, characterId })) });
 
     console.log('UAT seed completed safely.');
     console.log(`Created/updated ${accountDefinitions.length} role accounts.`);

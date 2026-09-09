@@ -1,7 +1,8 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../generated/prisma"
-  moduleFormat = "cjs"
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  moduleFormat    = "cjs"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -34,39 +35,1027 @@ enum LeadActivityType {
   STATUS_CHANGED
   NOTE_ADDED
   LEAD_UPDATED
+  FOLLOW_UP_CREATED
+  FOLLOW_UP_UPDATED
+  FOLLOW_UP_COMPLETED
+  FOLLOW_UP_CANCELLED
+  FOLLOW_UP_MISSED
+  ATTENTION_FLAGGED
+  ATTENTION_CLEARED
+  LEAD_REASSIGNED
+  SALE_MADE_STARTED
+  SALE_SUBMISSION_UPDATED
+  SALE_SUBMITTED_TO_ADMIN
+  SALE_ACCEPTED_BY_ADMIN
+}
+
+enum NotificationType {
+  GENERAL
+  LEAD_ASSIGNED
+  LEAD_UPDATED
+  SYSTEM
+  CALLBACK_DUE
+  MISSED_CALLBACK
+  ATTENTION_LEAD
+  LEAD_REASSIGNED
+  NEW_SALE
+  SALE_ACCEPTED
+  BOOKING_CREATED
+  OPERATIONS_ASSIGNED
+  BOOKING_TASK_ASSIGNED
+  RECONCILIATION_REQUIRED
+  RECONCILIATION_COMPLETED
+  RECONCILIATION_DISCREPANCY
+  DISCREPANCY_ASSIGNED
+  DISCREPANCY_RESOLVED
+  TRAVEL_COMPLETE
+  FOLDER_CLOSED
+  FOLDER_REOPENED
+  LEAVE_REQUEST
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  IT_TICKET_ASSIGNED
+  IT_TICKET_UPDATED
+  IT_TICKET_RESOLVED
+  ACCESS_REQUEST_APPROVED
+  ACCESS_REQUEST_REJECTED
+  ASSET_ASSIGNED
+  LEAVE_APPROVAL_REQUIRED
+  ONBOARDING_TASK_ASSIGNED
+  ONBOARDING_TASK_DUE
+  OFFBOARDING_TASK_ASSIGNED
+  EMPLOYEE_DOCUMENT_EXPIRING
+  EMPLOYEE_DOCUMENT_EXPIRED
+  ACCESS_REVIEW_REQUIRED
+  MARKETING_DEAL_APPROVAL_REQUIRED
+  MARKETING_DEAL_APPROVED
+  MARKETING_DEAL_REJECTED
+  MARKETING_DEAL_EXPIRING
+  MARKETING_DEAL_SUSPENDED
+  MARKETING_DEAL_CHANNEL_FAILURE
+  MARKETING_CONTENT_ASSIGNED
+  MARKETING_CONTENT_REVIEW_REQUIRED
+  MARKETING_CONTENT_APPROVED
+  MARKETING_CONTENT_CHANGES_REQUESTED
+  MARKETING_CONTENT_REJECTED
+  MARKETING_CONTENT_DEADLINE
+  CONNECTED_DEAL_CHANGED
+  MARKETING_CONTENT_GAP
+  MARKETING_READY_TO_PUBLISH
+  MARKETING_CONTENT_OVERDUE
+  MARKETING_CAMPAIGN_STARTING
+  MARKETING_SALES_SIGNAL
+  NEOTRIO_IDEA_ASSIGNED
+  NEOTRIO_PRODUCTION_ASSIGNED
+  NEOTRIO_PRODUCTION_REVIEW_REQUIRED
+  NEOTRIO_PRODUCTION_CHANGES_REQUESTED
+  NEOTRIO_PRODUCTION_APPROVED
+  NEOTRIO_PRODUCTION_DEADLINE
+  NEOTRIO_CHARACTER_ASSET_APPROVAL_REQUIRED
+}
+
+enum BookingStatus {
+  NEW
+  IN_PROGRESS
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum TravelStatus {
+  UPCOMING
+  IN_TRAVEL
+  TRAVEL_COMPLETE
+  CANCELLED
+}
+
+enum OperationsStatus {
+  PENDING
+  IN_PROGRESS
+  SUPPLIER_PENDING
+  TICKETING_PENDING
+  READY
+  COMPLETE
+  ACTION_REQUIRED
+}
+
+enum AccountsStatus {
+  NOT_STARTED
+  RECONCILIATION_PENDING
+  RECONCILED
+  DISCREPANCY
+}
+
+enum FolderStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum SupplierType {
+  AIRLINE
+  HOTEL
+  TOUR_OPERATOR
+  TRANSFER
+  CRUISE
+  INSURANCE
+  OTHER
+}
+
+enum BookingSupplierStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum BookingReferenceType {
+  PNR
+  AIRLINE_REFERENCE
+  HOTEL_REFERENCE
+  SUPPLIER_REFERENCE
+  TICKET_NUMBER
+  OTHER
+}
+
+enum BookingDocumentCategory {
+  TICKET
+  ITINERARY
+  INVOICE
+  SUPPLIER_DOCUMENT
+  PASSENGER_DOCUMENT
+  OTHER
+}
+
+enum BookingTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleSubmissionStatus {
+  DRAFT
+  SUBMITTED_TO_ADMIN
+  ADMIN_ACCEPTED
+  ADMIN_REJECTED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CARD
+  CASH
+  WISE
+  OTHER
+}
+
+enum PassengerPaymentStatus {
+  PENDING
+  RECEIVED
+  VERIFIED
+  REJECTED
+  REFUNDED
+}
+
+enum SupplierPaymentStatus {
+  PENDING
+  PAID
+  VERIFIED
+  DISPUTED
+  CANCELLED
+}
+
+enum CustomerInvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum SupplierInvoiceStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum BankAccountType {
+  CURRENT
+  SAVINGS
+  OTHER
+}
+
+enum BankTransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+enum BankTransactionSource {
+  CUSTOMER_RECEIPT
+  SUPPLIER_PAYMENT
+  CUSTOMER_REFUND
+  SUPPLIER_REFUND
+  BANK_TRANSFER
+  BANK_CHARGE
+  INTEREST
+  MANUAL_ADJUSTMENT
+}
+
+enum BankTransactionStatus {
+  PENDING
+  POSTED
+  CANCELLED
+  REVERSED
+}
+
+enum BankStatementStatus {
+  DRAFT
+  IN_REVIEW
+  ACTION_REQUIRED
+  RECONCILED
+}
+
+enum BankMatchStatus {
+  UNMATCHED
+  MATCHED
+  RECONCILED
+}
+
+enum GlAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum AccountingMappingType {
+  BANK_CONTROL
+  ACCOUNTS_RECEIVABLE
+  ACCOUNTS_PAYABLE
+  CUSTOMER_ADVANCES
+  SUPPLIER_ADVANCES
+  SALES_REVENUE
+  DIRECT_BOOKING_COST
+  BANK_CHARGES
+  BANK_ADJUSTMENTS
+  PAYMENT_CLEARING
+  FX_GAIN
+  FX_LOSS
+}
+
+enum JournalSourceType {
+  MANUAL
+  CUSTOMER_INVOICE
+  CUSTOMER_RECEIPT
+  CUSTOMER_ADVANCE
+  CUSTOMER_ADVANCE_ALLOCATION
+  SUPPLIER_INVOICE
+  SUPPLIER_PAYMENT
+  SUPPLIER_ADVANCE
+  SUPPLIER_ADVANCE_ALLOCATION
+  BANK_CHARGE
+  BANK_ADJUSTMENT
+  REVERSAL
+}
+
+enum JournalStatus {
+  DRAFT
+  APPROVED
+  POSTED
+  REVERSED
+  REJECTED
+}
+
+enum TaxClassification {
+  OUTPUT
+  INPUT
+  NONE
+}
+
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSING
+  CLOSED
+  LOCKED
+}
+
+enum BookingAdjustmentType {
+  FEE
+  DISCOUNT
+  REFUND
+  MANUAL_ADJUSTMENT
+  OTHER
+}
+
+enum ReconciliationStatus {
+  PENDING
+  IN_REVIEW
+  RECONCILED
+  DISCREPANCY
+}
+
+enum DiscrepancyStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+enum DiscrepancyType {
+  PASSENGER_PAYMENT_MISMATCH
+  SUPPLIER_COST_MISMATCH
+  SUPPLIER_PAYMENT_MISMATCH
+  SELLING_PRICE_MISMATCH
+  MISSING_PAYMENT
+  UNEXPLAINED_AMOUNT
+  OTHER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+  TEMPORARY
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  NOTICE_PERIOD
+  TERMINATED
+  INACTIVE
+}
+
+enum OrganizationLevel {
+  STAFF
+  SUPERVISOR
+  MANAGER
+  DEPARTMENT_HEAD
+  DIRECTOR
+  OWNER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  ON_LEAVE
+  REMOTE
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  CASUAL
+  UNPAID
+  OTHER
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum EmploymentChangeType {
+  HIRED
+  PROMOTION
+  TRANSFER
+  DEPARTMENT_CHANGE
+  MANAGER_CHANGE
+  JOB_TITLE_CHANGE
+  EMPLOYMENT_TYPE_CHANGE
+  STATUS_CHANGE
+  ORGANIZATION_LEVEL_CHANGE
+  OTHER
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+enum LeaveAccrualMethod {
+  ANNUAL
+  MONTHLY
+  NONE
+}
+
+enum LeaveApprovalLevel {
+  MANAGER
+  HR
+}
+
+enum LeaveApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum HrTaskCategory {
+  HR
+  MANAGER
+  IT
+  EMPLOYEE
+  DOCUMENT
+  ACCESS
+  EQUIPMENT
+  FINANCE
+  OTHER
+}
+
+enum HrTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentAcknowledgementStatus {
+  PENDING
+  ACKNOWLEDGED
+}
+
+enum EmployeeDocumentVisibility {
+  EMPLOYEE
+  MANAGER
+  HR_ONLY
+  ADMIN_ONLY
+}
+
+enum AccessReviewTriggerType {
+  DEPARTMENT_CHANGE
+  MANAGER_CHANGE
+  JOB_TITLE_CHANGE
+  STATUS_CHANGE
+  ORGANIZATION_LEVEL_CHANGE
+  OFFBOARDING
+  OTHER
+}
+
+enum AccessReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum EmployeeDocumentCategory {
+  CONTRACT
+  ID_DOCUMENT
+  CV
+  CERTIFICATE
+  POLICY
+  HR_LETTER
+  VISA
+  OTHER
+}
+
+enum ProcessStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ITAssetType {
+  LAPTOP
+  DESKTOP
+  MONITOR
+  MOBILE
+  TABLET
+  PRINTER
+  NETWORK_DEVICE
+  HEADSET
+  OTHER
+}
+
+enum ITAssetStatus {
+  AVAILABLE
+  ASSIGNED
+  IN_REPAIR
+  LOST
+  RETIRED
+  DISPOSED
+}
+
+enum ITTicketCategory {
+  HARDWARE
+  SOFTWARE
+  NETWORK
+  EMAIL
+  ACCESS
+  TELEPHONY
+  ACCOUNT
+  OTHER
+}
+
+enum ITTicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ITTicketStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum ITTicketActivityType {
+  TICKET_CREATED
+  ASSIGNED
+  STATUS_CHANGED
+  COMMENT_ADDED
+  RESOLVED
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+  CANCELLED
+}
+
+enum FollowUpType {
+  CALLBACK
+  GENERAL_FOLLOW_UP
+  EMAIL_FOLLOW_UP
+  OTHER
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum AttentionReason {
+  NO_ACTIVITY_3_DAYS
+  MISSED_CALLBACK
+  NO_FUTURE_ACTION
+}
+
+enum IntegrationProviderType {
+  WISE
+  BANK
+  TELEPHONY
+  WEBSITE
+  META
+  OTHER
+}
+
+enum IntegrationStatus {
+  NOT_CONFIGURED
+  CONNECTED
+  DEGRADED
+  ERROR
+  DISABLED
+}
+
+enum IntegrationEventDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum IntegrationEventStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  IGNORED
+}
+
+enum MarketingDealStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  EXPIRING
+  EXPIRED
+  SUSPENDED
+}
+
+enum MarketingDealApprovalStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum MarketingChannel {
+  WEBSITE
+  FACEBOOK
+  INSTAGRAM
+  EMAIL
+  PAID_ADS
+  NEOTRIO
+  OTHER
+}
+
+enum MarketingChannelStatus {
+  NOT_PUBLISHED
+  SCHEDULED
+  LIVE
+  REMOVED
+  FAILED
+}
+
+enum WebsitePublicationStatus {
+  NOT_CONFIGURED
+  PENDING
+  PUBLISHED
+  UNPUBLISHED
+  FAILED
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum MarketingContentType {
+  SOCIAL_POST
+  REEL
+  STORY
+  CAROUSEL
+  WEBSITE_BANNER
+  WEBSITE_CONTENT
+  EMAIL
+  PAID_AD
+  VIDEO
+  BLOG
+  NEOTRIO
+  OTHER
+}
+
+enum MarketingContentStage {
+  IDEA
+  CREATING
+  REVIEW
+  READY
+  LIVE
+  ARCHIVED
+  CANCELLED
+}
+
+enum MarketingPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum MarketingContentApprovalStatus {
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+enum MarketingPublicationStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  REMOVED
+}
+
+enum MarketingSalesSignalType {
+  CUSTOMER_QUESTION
+  CONTENT_REQUEST
+  OFFER_REQUEST
+  DESTINATION_INTEREST
+  RECURRING_OBJECTION
+  MARKETING_SUPPORT
+  OTHER
+}
+
+enum MarketingSalesSignalStatus {
+  NEW
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
+
+enum MarketingAttributionConfidence {
+  DIRECT
+  TRACKED
+  MANUAL
+  UNATTRIBUTED
+}
+
+enum MarketingAttributionSource {
+  ERP_LINK
+  UTM
+  WEBSITE
+  META
+  MANUAL
+  OTHER
+}
+
+enum MarketingOpportunitySource {
+  CRM_TREND
+  SALES_SIGNAL
+  DEAL_INTEREST
+  MANUAL
+  OTHER
+}
+
+enum MarketingOpportunityStatus {
+  NEW
+  REVIEWING
+  ACCEPTED
+  ACTIONED
+  DISMISSED
+}
+
+enum NeoTrioCharacterAssetType {
+  CHARACTER_REFERENCE
+  MASTER_IMAGE
+  OUTFIT_REFERENCE
+  EXPRESSION_REFERENCE
+  POSE_REFERENCE
+  VOICE_REFERENCE
+  STYLE_GUIDE
+  SCRIPT_GUIDE
+  LOGO_OR_BRANDING
+  OTHER
+}
+
+enum NeoTrioAssetStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ARCHIVED
+}
+
+enum NeoTrioIdeaType {
+  JOKE
+  TREND
+  TRAVEL_IDEA
+  DESTINATION
+  CAMPAIGN
+  EDUCATIONAL
+  PROMOTIONAL
+  SEASONAL
+  MEME
+  EPISODE
+  REEL
+  OTHER
+}
+
+enum NeoTrioIdeaStatus {
+  NEW
+  SHORTLISTED
+  ACCEPTED
+  CONVERTED
+  ARCHIVED
+  REJECTED
+}
+
+enum NeoTrioProductionType {
+  EPISODE
+  REEL
+  SHORT_VIDEO
+  MEME
+  SOCIAL_POST
+  STORY
+  CAMPAIGN_APPEARANCE
+  IMAGE
+  SCRIPT_ONLY
+  OTHER
+}
+
+enum NeoTrioProductionStage {
+  IDEA
+  SCRIPT
+  PRODUCTION
+  REVIEW
+  READY
+  PUBLISHED
+  CANCELLED
+  ARCHIVED
+}
+
+enum NeoTrioProductionAssetType {
+  SCRIPT
+  RAW_IMAGE
+  RAW_VIDEO
+  EDITED_IMAGE
+  EDITED_VIDEO
+  THUMBNAIL
+  CAPTION
+  AUDIO
+  OTHER
+}
+
+enum NeoTrioLibraryType {
+  EPISODE
+  REEL
+  MEME
+  SCRIPT
+  CAMPAIGN_APPEARANCE
+  SOCIAL_POST
+  IMAGE
+  VIDEO
+  OTHER
+}
+
+enum MarketingCalendarEntryType {
+  CONTENT
+  CAMPAIGN
+  DEAL
+  DEAL_EXPIRY
+  WEBSITE
+  FACEBOOK
+  INSTAGRAM
+  PAID_AD
+  EMAIL
+  NEOTRIO
+  SEASONAL
+  INTERNAL_EVENT
+  OTHER
+}
+
+enum MarketingCalendarSource {
+  INTERNAL
+  META
+  WEBSITE
+  OTHER_INTEGRATION
+}
+
+enum MarketingCalendarStatus {
+  DRAFT
+  PLANNED
+  SCHEDULED
+  READY
+  PUBLISHED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  ANSWERED
+  MISSED
+  FAILED
+  COMPLETED
 }
 
 model User {
-  id               String         @id @default(uuid()) @db.Uuid
-  email            String         @unique
-  passwordHash     String
-  firstName        String
-  lastName         String
-  isActive         Boolean        @default(true)
-  departmentId     String?        @db.Uuid
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  department       Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  roles            UserRole[]
-  assignedLeads    Lead[]         @relation("AssignedUserLeads")
-  createdLeads     Lead[]         @relation("LeadCreatedBy")
-  leadActivities   LeadActivity[]
-  createdCustomers Customer[]     @relation("CustomerCreatedBy")
-  updatedCustomers Customer[]     @relation("CustomerUpdatedBy")
-  customerNotes    CustomerNote[]
-  auditLogs        AuditLog[]
+  id                             String                      @id @default(uuid()) @db.Uuid
+  email                          String                      @unique
+  passwordHash                   String
+  firstName                      String
+  lastName                       String
+  isActive                       Boolean                     @default(true)
+  departmentId                   String?                     @db.Uuid
+  createdAt                      DateTime                    @default(now())
+  updatedAt                      DateTime                    @updatedAt
+  department                     Department?                 @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  roles                          UserRole[]
+  assignedLeads                  Lead[]                      @relation("AssignedUserLeads")
+  createdLeads                   Lead[]                      @relation("LeadCreatedBy")
+  leadActivities                 LeadActivity[]
+  createdCustomers               Customer[]                  @relation("CustomerCreatedBy")
+  updatedCustomers               Customer[]                  @relation("CustomerUpdatedBy")
+  customerNotes                  CustomerNote[]
+  auditLogs                      AuditLog[]
+  notifications                  Notification[]
+  assignedFollowUps              FollowUp[]                  @relation("FollowUpAssignedUser")
+  createdFollowUps               FollowUp[]                  @relation("FollowUpCreatedBy")
+  completedFollowUps             FollowUp[]                  @relation("FollowUpCompletedBy")
+  saleSubmissions                SaleSubmission[]
+  salesBookings                  Booking[]                   @relation("BookingSalesAdvisor")
+  operationsBookings             Booking[]                   @relation("BookingOperationsOwner")
+  createdBookings                Booking[]                   @relation("BookingCreatedBy")
+  uploadedDocuments              BookingDocument[]
+  bookingNotes                   BookingNote[]
+  assignedBookingTasks           BookingTask[]               @relation("BookingTaskAssignedUser")
+  createdBookingTasks            BookingTask[]               @relation("BookingTaskCreatedBy")
+  recordedPassengerPayments      PassengerPayment[]          @relation("PassengerPaymentRecordedBy")
+  verifiedPassengerPayments      PassengerPayment[]          @relation("PassengerPaymentVerifiedBy")
+  recordedSupplierPayments       SupplierPayment[]           @relation("SupplierPaymentRecordedBy")
+  verifiedSupplierPayments       SupplierPayment[]           @relation("SupplierPaymentVerifiedBy")
+  createdBookingAdjustments      BookingAdjustment[]         @relation("BookingAdjustmentCreatedBy")
+  approvedBookingAdjustments     BookingAdjustment[]         @relation("BookingAdjustmentApprovedBy")
+  completedReconciliations       Reconciliation[]            @relation("ReconciliationCompletedBy")
+  assignedDiscrepancies          ReconciliationDiscrepancy[] @relation("DiscrepancyAssignedUser")
+  createdDiscrepancies           ReconciliationDiscrepancy[] @relation("DiscrepancyCreatedBy")
+  resolvedDiscrepancies          ReconciliationDiscrepancy[] @relation("DiscrepancyResolvedBy")
+  createdCustomerInvoices        CustomerInvoice[]           @relation("CustomerInvoiceCreatedBy")
+  createdSupplierInvoices        SupplierInvoice[]           @relation("SupplierInvoiceCreatedBy")
+  recordedCustomerAdvances       CustomerAdvance[]           @relation("CustomerAdvanceRecordedBy")
+  allocatedCustomerAdvances      CustomerAdvanceAllocation[] @relation("CustomerAdvanceAllocatedBy")
+  reversedCustomerAdvances       CustomerAdvanceAllocation[] @relation("CustomerAdvanceReversedBy")
+  recordedSupplierAdvances       SupplierAdvance[]           @relation("SupplierAdvanceRecordedBy")
+  allocatedSupplierAdvances      SupplierAdvanceAllocation[] @relation("SupplierAdvanceAllocatedBy")
+  reversedSupplierAdvances       SupplierAdvanceAllocation[] @relation("SupplierAdvanceReversedBy")
+  createdBankAccounts            CompanyBankAccount[]        @relation("BankAccountCreatedBy")
+  updatedBankAccounts            CompanyBankAccount[]        @relation("BankAccountUpdatedBy")
+  createdBankTransactions        BankTransaction[]           @relation("BankTransactionCreatedBy")
+  createdBankStatements          BankStatement[]             @relation("BankStatementCreatedBy")
+  finalizedBankStatements        BankStatement[]             @relation("BankStatementFinalizedBy")
+  reopenedBankStatements         BankStatement[]             @relation("BankStatementReopenedBy")
+  matchedBankTransactions        BankReconciliationMatch[]   @relation("BankMatchMatchedBy")
+  unmatchedBankTransactions      BankReconciliationMatch[]   @relation("BankMatchUnmatchedBy")
+  createdGlAccounts              GlAccount[]                 @relation("GlAccountCreatedBy")
+  updatedGlAccounts              GlAccount[]                 @relation("GlAccountUpdatedBy")
+  changedAccountingMappings      AccountingMapping[]         @relation("AccountingMappingUpdatedBy")
+  createdJournalEntries          JournalEntry[]              @relation("JournalCreatedBy")
+  approvedJournalEntries         JournalEntry[]              @relation("JournalApprovedBy")
+  postedJournalEntries           JournalEntry[]              @relation("JournalPostedBy")
+  reversedJournalEntries         JournalEntry[]              @relation("JournalReversedBy")
+  updatedAccountingSettings      AccountingSetting[]         @relation("AccountingSettingUpdatedBy")
+  createdExchangeRates           ExchangeRate[]              @relation("ExchangeRateCreatedBy")
+  updatedExchangeRates           ExchangeRate[]              @relation("ExchangeRateUpdatedBy")
+  createdTaxCodes                TaxCode[]                   @relation("TaxCodeCreatedBy")
+  updatedTaxCodes                TaxCode[]                   @relation("TaxCodeUpdatedBy")
+  createdAccountingPeriods       AccountingPeriod[]          @relation("AccountingPeriodCreatedBy")
+  closedAccountingPeriods        AccountingPeriod[]          @relation("AccountingPeriodClosedBy")
+  reopenedAccountingPeriods      AccountingPeriod[]          @relation("AccountingPeriodReopenedBy")
+  reopenedBookings               Booking[]                   @relation("BookingReopenedBy")
+  employee                       Employee?                   @relation("EmployeeUser")
+  reviewedLeaveRequests          LeaveRequest[]              @relation("LeaveReviewedBy")
+  leaveApprovals                 LeaveApproval[]             @relation("LeaveApprovalApprover")
+  uploadedEmployeeDocuments      EmployeeDocument[]          @relation("EmployeeDocumentUploadedBy")
+  assignedAssets                 AssetAssignment[]           @relation("AssetAssignedBy")
+  returnedAssets                 AssetAssignment[]           @relation("AssetReturnedTo")
+  assignedITTickets              ITTicket[]                  @relation("ITTicketAssignedTo")
+  itTicketActivities             ITTicketActivity[]
+  createdAccessRequests          AccessRequest[]             @relation("AccessRequestRequestedBy")
+  reviewedAccessRequests         AccessRequest[]             @relation("AccessRequestReviewedBy")
+  callLogs                       CallLog[]
+  createdMarketingDeals          MarketingDeal[]             @relation("MarketingDealCreatedBy")
+  updatedMarketingDeals          MarketingDeal[]             @relation("MarketingDealUpdatedBy")
+  approvedMarketingDeals         MarketingDeal[]             @relation("MarketingDealApprovedBy")
+  suspendedMarketingDeals        MarketingDeal[]             @relation("MarketingDealSuspendedBy")
+  ownedMarketingCampaigns        MarketingCampaign[]         @relation("MarketingCampaignOwner")
+  createdMarketingCampaigns      MarketingCampaign[]         @relation("MarketingCampaignCreatedBy")
+  updatedMarketingCampaigns      MarketingCampaign[]         @relation("MarketingCampaignUpdatedBy")
+  assignedMarketingContent       MarketingContent[]          @relation("MarketingContentAssignedTo")
+  createdMarketingContent        MarketingContent[]          @relation("MarketingContentCreatedBy")
+  updatedMarketingContent        MarketingContent[]          @relation("MarketingContentUpdatedBy")
+  marketingContentVersions       MarketingContentVersion[]
+  requestedContentApprovals      MarketingContentApproval[]  @relation("ContentApprovalRequestedBy")
+  reviewedContentApprovals       MarketingContentApproval[]  @relation("ContentApprovalReviewer")
+  marketingContentComments       MarketingContentComment[]
+  assignedCalendarEntries        MarketingCalendarEntry[]    @relation("MarketingCalendarAssignedTo")
+  createdCalendarEntries         MarketingCalendarEntry[]    @relation("MarketingCalendarCreatedBy")
+  updatedCalendarEntries         MarketingCalendarEntry[]    @relation("MarketingCalendarUpdatedBy")
+  createdMarketingSalesSignals   MarketingSalesSignal[]
+  createdMarketingAttributions   MarketingAttribution[]      @relation("MarketingAttributionCreatedBy")
+  createdMarketingOpportunities  MarketingOpportunity[]      @relation("MarketingOpportunityCreatedBy")
+  assignedMarketingOpportunities MarketingOpportunity[]      @relation("MarketingOpportunityAssignedTo")
+  createdNeoTrioCharacters       NeoTrioCharacter[]          @relation("NeoTrioCharacterCreatedBy")
+  updatedNeoTrioCharacters       NeoTrioCharacter[]          @relation("NeoTrioCharacterUpdatedBy")
+  uploadedNeoTrioCharacterAssets NeoTrioCharacterAsset[]     @relation("NeoTrioCharacterAssetUploadedBy")
+  approvedNeoTrioCharacterAssets NeoTrioCharacterAsset[]     @relation("NeoTrioCharacterAssetApprovedBy")
+  submittedNeoTrioIdeas          NeoTrioIdea[]               @relation("NeoTrioIdeaSubmittedBy")
+  assignedNeoTrioIdeas           NeoTrioIdea[]               @relation("NeoTrioIdeaAssignedTo")
+  createdNeoTrioProductions      NeoTrioProduction[]         @relation("NeoTrioProductionCreatedBy")
+  updatedNeoTrioProductions      NeoTrioProduction[]         @relation("NeoTrioProductionUpdatedBy")
+  assignedNeoTrioProductions     NeoTrioProduction[]         @relation("NeoTrioProductionAssignedTo")
+  createdNeoTrioScripts          NeoTrioScript[]
+  createdNeoTrioProductionAssets NeoTrioProductionAsset[]
+  createdNeoTrioSeries           NeoTrioSeries[]
 
   @@index([departmentId])
 }
 
 model Department {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
+  id          String     @id @default(uuid()) @db.Uuid
+  name        String     @unique
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   users       User[]
+  employees   Employee[]
 }
 
 model Role {
@@ -108,24 +1097,33 @@ model RolePermission {
 }
 
 model Customer {
-  id             String         @id @default(uuid()) @db.Uuid
-  firstName      String
-  lastName       String
-  email          String?
-  phone          String?
-  secondaryPhone String?
-  dateOfBirth    DateTime?      @db.Date
-  nationality    String?
-  customerType   CustomerType   @default(NEW)
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  createdById    String         @db.Uuid
-  updatedById    String         @db.Uuid
-  createdBy      User           @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy      User           @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
-  notes          CustomerNote[]
-  leads          Lead[]
+  id                    String                 @id @default(uuid()) @db.Uuid
+  firstName             String
+  lastName              String
+  email                 String?
+  phone                 String?
+  secondaryPhone        String?
+  dateOfBirth           DateTime?              @db.Date
+  nationality           String?
+  customerType          CustomerType           @default(NEW)
+  isActive              Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  createdById           String                 @db.Uuid
+  updatedById           String                 @db.Uuid
+  createdBy             User                   @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy             User                   @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  notes                 CustomerNote[]
+  leads                 Lead[]
+  saleSubmissions       SaleSubmission[]
+  bookings              Booking[]
+  invoices              CustomerInvoice[]
+  advances              CustomerAdvance[]
+  callLogs              CallLog[]
+  marketingSalesSignals MarketingSalesSignal[]
+  marketingAttributions MarketingAttribution[]
+  bankTransactions      BankTransaction[]
+  journalLines          JournalLine[]
 
   @@index([firstName])
   @@index([lastName])
@@ -159,33 +1157,65 @@ model AuditLog {
   action     String
   oldValues  Json?
   newValues  Json?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
   createdAt  DateTime @default(now())
   actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([actorId])
   @@index([entityType, entityId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  type       NotificationType @default(GENERAL)
+  title      String
+  message    String
+  entityType String?
+  entityId   String?          @db.Uuid
+  metadata   Json?
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId, type, createdAt])
 }
 
 model Lead {
-  id                       String         @id @default(uuid()) @db.Uuid
-  customerId               String         @db.Uuid
-  assignedUserId           String?        @db.Uuid
+  id                       String                 @id @default(uuid()) @db.Uuid
+  customerId               String                 @db.Uuid
+  assignedUserId           String?                @db.Uuid
   assignedAt               DateTime?
-  status                   LeadStatus     @default(NEW)
+  status                   LeadStatus             @default(NEW)
   source                   String?
   destination              String?
-  travelDate               DateTime?      @db.Date
+  travelDate               DateTime?              @db.Date
   summary                  String?
   salesNotes               String?
   nextActionAt             DateTime?
   lastMeaningfulActivityAt DateTime?
-  createdById              String         @db.Uuid
-  createdAt                DateTime       @default(now())
-  updatedAt                DateTime       @updatedAt
-  customer                 Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  assignedUser             User?          @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
-  createdBy                User           @relation("LeadCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  isAttentionRequired      Boolean                @default(false)
+  attentionReason          AttentionReason?
+  attentionSince           DateTime?
+  createdById              String                 @db.Uuid
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  customer                 Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedUser             User?                  @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy                User                   @relation("LeadCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   activities               LeadActivity[]
+  followUps                FollowUp[]
+  saleSubmission           SaleSubmission?
+  booking                  Booking?
+  callLogs                 CallLog[]
+  marketingSalesSignals    MarketingSalesSignal[]
+  marketingAttributions    MarketingAttribution[]
 
   @@index([customerId])
   @@index([assignedUserId])
@@ -193,6 +1223,2169 @@ model Lead {
   @@index([status])
   @@index([status, assignedUserId, createdAt])
   @@index([nextActionAt])
+  @@index([isAttentionRequired, assignedUserId])
+  @@index([status, isAttentionRequired])
+  @@index([createdAt, destination])
+}
+
+model SaleSubmission {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  leadId                String                 @unique @db.Uuid
+  customerId            String                 @db.Uuid
+  submittedByUserId     String                 @db.Uuid
+  destination           String?
+  travelStartDate       DateTime?              @db.Date
+  travelEndDate         DateTime?              @db.Date
+  sellingPrice          Decimal?               @db.Decimal(12, 2)
+  depositAmount         Decimal?               @db.Decimal(12, 2)
+  currency              String?
+  paymentMethod         PaymentMethod?
+  paymentReference      String?
+  salesNotes            String?
+  status                SaleSubmissionStatus   @default(DRAFT)
+  submittedAt           DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  lead                  Lead                   @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  customer              Customer               @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  submittedBy           User                   @relation(fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  booking               Booking?
+  marketingAttributions MarketingAttribution[]
+
+  @@index([customerId])
+  @@index([submittedByUserId, status, updatedAt])
+  @@index([status, submittedAt])
+}
+
+model FolderCounter {
+  year       Int      @id
+  nextNumber Int
+  updatedAt  DateTime @updatedAt
+}
+
+model Booking {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  folderNumber          String                      @unique
+  customerId            String                      @db.Uuid
+  leadId                String                      @unique @db.Uuid
+  saleSubmissionId      String                      @unique @db.Uuid
+  salesAdvisorId        String                      @db.Uuid
+  operationsOwnerId     String?                     @db.Uuid
+  status                BookingStatus               @default(NEW)
+  travelStatus          TravelStatus                @default(UPCOMING)
+  operationsStatus      OperationsStatus            @default(PENDING)
+  accountsStatus        AccountsStatus              @default(NOT_STARTED)
+  folderStatus          FolderStatus                @default(OPEN)
+  destination           String
+  travelStartDate       DateTime                    @db.Date
+  travelEndDate         DateTime?                   @db.Date
+  finalServiceDate      DateTime?                   @db.Date
+  sellingPrice          Decimal                     @db.Decimal(12, 2)
+  supplierCost          Decimal?                    @db.Decimal(12, 2)
+  currency              String
+  createdById           String                      @db.Uuid
+  folderReopenedAt      DateTime?
+  folderReopenedById    String?                     @db.Uuid
+  folderReopenReason    String?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  customer              Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  lead                  Lead                        @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  saleSubmission        SaleSubmission              @relation(fields: [saleSubmissionId], references: [id], onDelete: Restrict)
+  salesAdvisor          User                        @relation("BookingSalesAdvisor", fields: [salesAdvisorId], references: [id], onDelete: Restrict)
+  operationsOwner       User?                       @relation("BookingOperationsOwner", fields: [operationsOwnerId], references: [id], onDelete: SetNull)
+  createdBy             User                        @relation("BookingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  folderReopenedBy      User?                       @relation("BookingReopenedBy", fields: [folderReopenedById], references: [id], onDelete: SetNull)
+  passengers            Passenger[]
+  suppliers             BookingSupplier[]
+  references            BookingReference[]
+  documents             BookingDocument[]
+  notes                 BookingNote[]
+  tasks                 BookingTask[]
+  finance               BookingFinance?
+  passengerPayments     PassengerPayment[]
+  supplierPayments      SupplierPayment[]
+  adjustments           BookingAdjustment[]
+  reconciliation        Reconciliation?
+  discrepancies         ReconciliationDiscrepancy[]
+  customerInvoices      CustomerInvoice[]
+  supplierInvoices      SupplierInvoice[]
+  customerAdvances      CustomerAdvance[]
+  supplierAdvances      SupplierAdvance[]
+  marketingAttributions MarketingAttribution[]
+  bankTransactions      BankTransaction[]
+  journalEntries        JournalEntry[]
+  journalLines          JournalLine[]
+
+  @@index([customerId])
+  @@index([salesAdvisorId, status])
+  @@index([operationsOwnerId, operationsStatus])
+  @@index([travelStartDate])
+  @@index([folderStatus, travelStatus, operationsStatus, accountsStatus], map: "Booking_folderStatus_travelStatus_operationsStatus_accounts_idx")
+  @@index([folderReopenedById])
+}
+
+model Passenger {
+  id                 String    @id @default(uuid()) @db.Uuid
+  bookingId          String    @db.Uuid
+  firstName          String
+  lastName           String
+  dateOfBirth        DateTime? @db.Date
+  nationality        String?
+  passportNumber     String?
+  passportExpiryDate DateTime? @db.Date
+  email              String?
+  phone              String?
+  isPrimaryPassenger Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  booking            Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([firstName, lastName])
+}
+
+model Supplier {
+  id               String             @id @default(uuid()) @db.Uuid
+  name             String
+  supplierType     SupplierType
+  email            String?
+  phone            String?
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  bookingSuppliers BookingSupplier[]
+  references       BookingReference[]
+  invoices         SupplierInvoice[]
+  advances         SupplierAdvance[]
+  bankTransactions BankTransaction[]
+  journalLines     JournalLine[]
+
+  @@index([name])
+  @@index([supplierType, isActive])
+}
+
+model BookingSupplier {
+  id                String                @id @default(uuid()) @db.Uuid
+  bookingId         String                @db.Uuid
+  supplierId        String                @db.Uuid
+  supplierReference String?
+  serviceType       String
+  supplierCost      Decimal?              @db.Decimal(12, 2)
+  currency          String?
+  status            BookingSupplierStatus @default(PENDING)
+  notes             String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  booking           Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  supplier          Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  payments          SupplierPayment[]
+  invoices          SupplierInvoice[]
+
+  @@index([bookingId])
+  @@index([supplierId])
+}
+
+model BookingFinance {
+  id              String   @id @default(uuid()) @db.Uuid
+  bookingId       String   @unique @db.Uuid
+  sellingPrice    Decimal  @db.Decimal(12, 2)
+  supplierCost    Decimal  @default(0) @db.Decimal(12, 2)
+  fees            Decimal  @default(0) @db.Decimal(12, 2)
+  discounts       Decimal  @default(0) @db.Decimal(12, 2)
+  adjustments     Decimal  @default(0) @db.Decimal(12, 2)
+  expectedRevenue Decimal  @db.Decimal(12, 2)
+  expectedProfit  Decimal  @db.Decimal(12, 2)
+  currency        String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  booking         Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+}
+
+model PassengerPayment {
+  id                String                 @id @default(uuid()) @db.Uuid
+  bookingId         String                 @db.Uuid
+  amount            Decimal                @db.Decimal(12, 2)
+  currency          String
+  exchangeRate      Decimal                @default(1) @db.Decimal(18, 8)
+  baseCurrency      String                 @default("LKR")
+  baseAmount        Decimal                @default(0) @db.Decimal(14, 2)
+  paymentMethod     PaymentMethod
+  paymentReference  String?
+  paymentDate       DateTime               @db.Date
+  status            PassengerPaymentStatus @default(PENDING)
+  recordedById      String                 @db.Uuid
+  verifiedById      String?                @db.Uuid
+  verifiedAt        DateTime?
+  notes             String?
+  customerInvoiceId String?                @db.Uuid
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  booking           Booking                @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  recordedBy        User                   @relation("PassengerPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  verifiedBy        User?                  @relation("PassengerPaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  customerInvoice   CustomerInvoice?       @relation(fields: [customerInvoiceId], references: [id], onDelete: Restrict)
+  bankTransaction   BankTransaction?
+
+  @@index([bookingId, status, paymentDate])
+  @@index([customerInvoiceId])
+}
+
+model SupplierPayment {
+  id                String                @id @default(uuid()) @db.Uuid
+  bookingId         String                @db.Uuid
+  bookingSupplierId String                @db.Uuid
+  amount            Decimal               @db.Decimal(12, 2)
+  currency          String
+  exchangeRate      Decimal               @default(1) @db.Decimal(18, 8)
+  baseCurrency      String                @default("LKR")
+  baseAmount        Decimal               @default(0) @db.Decimal(14, 2)
+  paymentReference  String?
+  paymentMethod     PaymentMethod         @default(OTHER)
+  paymentDate       DateTime              @db.Date
+  status            SupplierPaymentStatus @default(PENDING)
+  recordedById      String                @db.Uuid
+  verifiedById      String?               @db.Uuid
+  verifiedAt        DateTime?
+  notes             String?
+  supplierInvoiceId String?               @db.Uuid
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  booking           Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingSupplier   BookingSupplier       @relation(fields: [bookingSupplierId], references: [id], onDelete: Restrict)
+  recordedBy        User                  @relation("SupplierPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  verifiedBy        User?                 @relation("SupplierPaymentVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  supplierInvoice   SupplierInvoice?      @relation(fields: [supplierInvoiceId], references: [id], onDelete: Restrict)
+  bankTransaction   BankTransaction?
+
+  @@index([bookingId, status, paymentDate])
+  @@index([bookingSupplierId])
+  @@index([supplierInvoiceId])
+}
+
+model CustomerInvoice {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  bookingId          String                      @db.Uuid
+  customerId         String                      @db.Uuid
+  invoiceNumber      String                      @unique
+  invoiceDate        DateTime                    @db.Date
+  dueDate            DateTime?                   @db.Date
+  currency           String
+  exchangeRate       Decimal                     @default(1) @db.Decimal(18, 8)
+  baseCurrency       String                      @default("LKR")
+  netAmount          Decimal                     @default(0) @db.Decimal(12, 2)
+  taxAmount          Decimal                     @default(0) @db.Decimal(12, 2)
+  totalAmount        Decimal                     @db.Decimal(12, 2)
+  baseTotalAmount    Decimal                     @default(0) @db.Decimal(14, 2)
+  taxCodeId          String?                     @db.Uuid
+  status             CustomerInvoiceStatus       @default(DRAFT)
+  documentId         String?                     @db.Uuid
+  createdById        String                      @db.Uuid
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  booking            Booking                     @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  customer           Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  document           BookingDocument?            @relation("CustomerInvoiceDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy          User                        @relation("CustomerInvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  payments           PassengerPayment[]
+  advanceAllocations CustomerAdvanceAllocation[]
+  taxCode            TaxCode?                    @relation(fields: [taxCodeId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId, status])
+  @@index([customerId, status, dueDate])
+  @@index([documentId])
+  @@index([taxCodeId])
+}
+
+model SupplierInvoice {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  bookingId          String                      @db.Uuid
+  bookingSupplierId  String                      @db.Uuid
+  supplierId         String                      @db.Uuid
+  invoiceNumber      String
+  invoiceDate        DateTime                    @db.Date
+  dueDate            DateTime?                   @db.Date
+  currency           String
+  exchangeRate       Decimal                     @default(1) @db.Decimal(18, 8)
+  baseCurrency       String                      @default("LKR")
+  netAmount          Decimal                     @default(0) @db.Decimal(12, 2)
+  taxAmount          Decimal                     @default(0) @db.Decimal(12, 2)
+  totalAmount        Decimal                     @db.Decimal(12, 2)
+  baseTotalAmount    Decimal                     @default(0) @db.Decimal(14, 2)
+  taxCodeId          String?                     @db.Uuid
+  status             SupplierInvoiceStatus       @default(DRAFT)
+  documentId         String?                     @db.Uuid
+  createdById        String                      @db.Uuid
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  booking            Booking                     @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingSupplier    BookingSupplier             @relation(fields: [bookingSupplierId], references: [id], onDelete: Restrict)
+  supplier           Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  document           BookingDocument?            @relation("SupplierInvoiceDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy          User                        @relation("SupplierInvoiceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  payments           SupplierPayment[]
+  advanceAllocations SupplierAdvanceAllocation[]
+  taxCode            TaxCode?                    @relation(fields: [taxCodeId], references: [id], onDelete: Restrict)
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([bookingId, status])
+  @@index([supplierId, status, dueDate])
+  @@index([bookingSupplierId])
+  @@index([documentId])
+  @@index([taxCodeId])
+}
+
+model CustomerAdvance {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  customerId           String                      @db.Uuid
+  bookingId            String?                     @db.Uuid
+  amount               Decimal                     @db.Decimal(12, 2)
+  currency             String
+  exchangeRate         Decimal                     @default(1) @db.Decimal(18, 8)
+  baseCurrency         String                      @default("LKR")
+  baseAmount           Decimal                     @default(0) @db.Decimal(14, 2)
+  paymentMethod        PaymentMethod
+  paymentReference     String?
+  paymentDate          DateTime                    @db.Date
+  notes                String?
+  cancelledAt          DateTime?
+  recordedById         String                      @db.Uuid
+  companyBankAccountId String?                     @db.Uuid
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  customer             Customer                    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  booking              Booking?                    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  recordedBy           User                        @relation("CustomerAdvanceRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  companyBankAccount   CompanyBankAccount?         @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  allocations          CustomerAdvanceAllocation[]
+
+  @@index([customerId, currency])
+  @@index([bookingId])
+  @@index([companyBankAccountId])
+}
+
+model CustomerAdvanceAllocation {
+  id             String          @id @default(uuid()) @db.Uuid
+  advanceId      String          @db.Uuid
+  invoiceId      String          @db.Uuid
+  amount         Decimal         @db.Decimal(12, 2)
+  allocatedById  String          @db.Uuid
+  allocatedAt    DateTime        @default(now())
+  reversedById   String?         @db.Uuid
+  reversedAt     DateTime?
+  reversalReason String?
+  advance        CustomerAdvance @relation(fields: [advanceId], references: [id], onDelete: Restrict)
+  invoice        CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  allocatedBy    User            @relation("CustomerAdvanceAllocatedBy", fields: [allocatedById], references: [id], onDelete: Restrict)
+  reversedBy     User?           @relation("CustomerAdvanceReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+
+  @@index([advanceId, reversedAt])
+  @@index([invoiceId, reversedAt])
+}
+
+model SupplierAdvance {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  supplierId           String                      @db.Uuid
+  bookingId            String?                     @db.Uuid
+  amount               Decimal                     @db.Decimal(12, 2)
+  currency             String
+  exchangeRate         Decimal                     @default(1) @db.Decimal(18, 8)
+  baseCurrency         String                      @default("LKR")
+  baseAmount           Decimal                     @default(0) @db.Decimal(14, 2)
+  paymentMethod        PaymentMethod
+  paymentReference     String?
+  paymentDate          DateTime                    @db.Date
+  notes                String?
+  cancelledAt          DateTime?
+  recordedById         String                      @db.Uuid
+  companyBankAccountId String?                     @db.Uuid
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  supplier             Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  booking              Booking?                    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  recordedBy           User                        @relation("SupplierAdvanceRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  companyBankAccount   CompanyBankAccount?         @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  allocations          SupplierAdvanceAllocation[]
+
+  @@index([supplierId, currency])
+  @@index([bookingId])
+  @@index([companyBankAccountId])
+}
+
+model SupplierAdvanceAllocation {
+  id             String          @id @default(uuid()) @db.Uuid
+  advanceId      String          @db.Uuid
+  invoiceId      String          @db.Uuid
+  amount         Decimal         @db.Decimal(12, 2)
+  allocatedById  String          @db.Uuid
+  allocatedAt    DateTime        @default(now())
+  reversedById   String?         @db.Uuid
+  reversedAt     DateTime?
+  reversalReason String?
+  advance        SupplierAdvance @relation(fields: [advanceId], references: [id], onDelete: Restrict)
+  invoice        SupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  allocatedBy    User            @relation("SupplierAdvanceAllocatedBy", fields: [allocatedById], references: [id], onDelete: Restrict)
+  reversedBy     User?           @relation("SupplierAdvanceReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+
+  @@index([advanceId, reversedAt])
+  @@index([invoiceId, reversedAt])
+}
+
+model CompanyBankAccount {
+  id                  String            @id @default(uuid()) @db.Uuid
+  bankName            String
+  accountName         String
+  maskedAccountNumber String
+  currency            String
+  branch              String?
+  accountType         BankAccountType   @default(CURRENT)
+  openingBalance      Decimal           @default(0) @db.Decimal(14, 2)
+  isActive            Boolean           @default(true)
+  createdById         String            @db.Uuid
+  updatedById         String            @db.Uuid
+  glAccountId         String?           @db.Uuid
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  createdBy           User              @relation("BankAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy           User              @relation("BankAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  glAccount           GlAccount?        @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  transactions        BankTransaction[]
+  statements          BankStatement[]
+  customerAdvances    CustomerAdvance[]
+  supplierAdvances    SupplierAdvance[]
+  journalLines        JournalLine[]
+
+  @@index([currency, isActive])
+  @@index([bankName])
+  @@index([glAccountId])
+}
+
+model BankTransaction {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  companyBankAccountId String                    @db.Uuid
+  transactionDate      DateTime                  @db.Date
+  amount               Decimal                   @db.Decimal(14, 2)
+  currency             String
+  exchangeRate         Decimal                   @default(1) @db.Decimal(18, 8)
+  baseCurrency         String                    @default("LKR")
+  baseAmount           Decimal                   @default(0) @db.Decimal(14, 2)
+  direction            BankTransactionDirection
+  reference            String?
+  description          String
+  sourceType           BankTransactionSource
+  passengerPaymentId   String?                   @unique @db.Uuid
+  supplierPaymentId    String?                   @unique @db.Uuid
+  transferId           String?                   @db.Uuid
+  bookingId            String?                   @db.Uuid
+  customerId           String?                   @db.Uuid
+  supplierId           String?                   @db.Uuid
+  status               BankTransactionStatus     @default(POSTED)
+  reconciliationState  BankMatchStatus           @default(UNMATCHED)
+  createdById          String                    @db.Uuid
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  companyBankAccount   CompanyBankAccount        @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  passengerPayment     PassengerPayment?         @relation(fields: [passengerPaymentId], references: [id], onDelete: Restrict)
+  supplierPayment      SupplierPayment?          @relation(fields: [supplierPaymentId], references: [id], onDelete: Restrict)
+  booking              Booking?                  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  customer             Customer?                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  supplier             Supplier?                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy            User                      @relation("BankTransactionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  matches              BankReconciliationMatch[]
+
+  @@index([companyBankAccountId, transactionDate, status])
+  @@index([bookingId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([transferId])
+}
+
+model BankStatement {
+  id                   String                     @id @default(uuid()) @db.Uuid
+  companyBankAccountId String                     @db.Uuid
+  periodStart          DateTime                   @db.Date
+  periodEnd            DateTime                   @db.Date
+  openingBalance       Decimal                    @db.Decimal(14, 2)
+  closingBalance       Decimal                    @db.Decimal(14, 2)
+  status               BankStatementStatus        @default(DRAFT)
+  createdById          String                     @db.Uuid
+  finalizedById        String?                    @db.Uuid
+  finalizedAt          DateTime?
+  reopenedById         String?                    @db.Uuid
+  reopenedAt           DateTime?
+  reopenReason         String?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  companyBankAccount   CompanyBankAccount         @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  createdBy            User                       @relation("BankStatementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  finalizedBy          User?                      @relation("BankStatementFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  reopenedBy           User?                      @relation("BankStatementReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+  transactions         BankStatementTransaction[]
+
+  @@unique([companyBankAccountId, periodStart, periodEnd])
+  @@index([companyBankAccountId, status])
+}
+
+model BankStatementTransaction {
+  id              String                    @id @default(uuid()) @db.Uuid
+  statementId     String                    @db.Uuid
+  transactionDate DateTime                  @db.Date
+  valueDate       DateTime?                 @db.Date
+  description     String
+  reference       String?
+  amount          Decimal                   @db.Decimal(14, 2)
+  direction       BankTransactionDirection
+  balance         Decimal?                  @db.Decimal(14, 2)
+  fingerprint     String                    @unique
+  matchingStatus  BankMatchStatus           @default(UNMATCHED)
+  createdAt       DateTime                  @default(now())
+  statement       BankStatement             @relation(fields: [statementId], references: [id], onDelete: Restrict)
+  matches         BankReconciliationMatch[]
+
+  @@index([statementId, matchingStatus, transactionDate])
+}
+
+model BankReconciliationMatch {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  erpBankTransactionId   String                   @db.Uuid
+  statementTransactionId String                   @db.Uuid
+  matchedById            String                   @db.Uuid
+  matchedAt              DateTime                 @default(now())
+  unmatchedById          String?                  @db.Uuid
+  unmatchedAt            DateTime?
+  unmatchReason          String?
+  erpBankTransaction     BankTransaction          @relation(fields: [erpBankTransactionId], references: [id], onDelete: Restrict)
+  statementTransaction   BankStatementTransaction @relation(fields: [statementTransactionId], references: [id], onDelete: Restrict)
+  matchedBy              User                     @relation("BankMatchMatchedBy", fields: [matchedById], references: [id], onDelete: Restrict)
+  unmatchedBy            User?                    @relation("BankMatchUnmatchedBy", fields: [unmatchedById], references: [id], onDelete: SetNull)
+
+  @@unique([erpBankTransactionId], map: "BankReconciliationMatch_one_active_erp", where: { unmatchedAt: null })
+  @@unique([statementTransactionId], map: "BankReconciliationMatch_one_active_statement", where: { unmatchedAt: null })
+  @@index([erpBankTransactionId, matchedAt])
+  @@index([statementTransactionId, matchedAt])
+}
+
+model GlAccount {
+  id           String               @id @default(uuid()) @db.Uuid
+  code         String               @unique
+  name         String
+  type         GlAccountType
+  parentId     String?              @db.Uuid
+  description  String?
+  isActive     Boolean              @default(true)
+  createdById  String?              @db.Uuid
+  updatedById  String?              @db.Uuid
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  parent       GlAccount?           @relation("GlAccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children     GlAccount[]          @relation("GlAccountHierarchy")
+  createdBy    User?                @relation("GlAccountCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy    User?                @relation("GlAccountUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  mappings     AccountingMapping[]
+  bankAccounts CompanyBankAccount[]
+  journalLines JournalLine[]
+  taxCodes     TaxCode[]
+
+  @@index([type, isActive])
+  @@index([parentId])
+}
+
+model AccountingMapping {
+  type        AccountingMappingType @id
+  accountId   String                @db.Uuid
+  updatedById String?               @db.Uuid
+  updatedAt   DateTime              @updatedAt
+  account     GlAccount             @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  updatedBy   User?                 @relation("AccountingMappingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+}
+
+model JournalEntry {
+  id             String            @id @default(uuid()) @db.Uuid
+  journalNumber  String            @unique
+  journalDate    DateTime          @db.Date
+  description    String
+  sourceType     JournalSourceType
+  sourceRecordId String?           @db.Uuid
+  bookingId      String?           @db.Uuid
+  currency       String
+  exchangeRate   Decimal           @default(1) @db.Decimal(18, 8)
+  baseCurrency   String            @default("LKR")
+  status         JournalStatus     @default(DRAFT)
+  createdById    String            @db.Uuid
+  approvedById   String?           @db.Uuid
+  approvedAt     DateTime?
+  postedById     String?           @db.Uuid
+  postedAt       DateTime?
+  reversedById   String?           @db.Uuid
+  reversedAt     DateTime?
+  reversalReason String?
+  reversalOfId   String?           @unique @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  booking        Booking?          @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  createdBy      User              @relation("JournalCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?             @relation("JournalApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  postedBy       User?             @relation("JournalPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  reversedBy     User?             @relation("JournalReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversalOf     JournalEntry?     @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversal       JournalEntry?     @relation("JournalReversal")
+  lines          JournalLine[]
+
+  @@unique([sourceType, sourceRecordId])
+  @@index([journalDate, status])
+  @@index([bookingId])
+  @@index([sourceType, sourceRecordId])
+}
+
+model JournalLine {
+  id                   String              @id @default(uuid()) @db.Uuid
+  journalEntryId       String              @db.Uuid
+  accountId            String              @db.Uuid
+  debit                Decimal             @default(0) @db.Decimal(14, 2)
+  credit               Decimal             @default(0) @db.Decimal(14, 2)
+  baseDebit            Decimal             @default(0) @db.Decimal(14, 2)
+  baseCredit           Decimal             @default(0) @db.Decimal(14, 2)
+  description          String?
+  bookingId            String?             @db.Uuid
+  customerId           String?             @db.Uuid
+  supplierId           String?             @db.Uuid
+  companyBankAccountId String?             @db.Uuid
+  createdAt            DateTime            @default(now())
+  journalEntry         JournalEntry        @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  account              GlAccount           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  booking              Booking?            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  customer             Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  supplier             Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  companyBankAccount   CompanyBankAccount? @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([accountId, journalEntryId])
+  @@index([bookingId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([companyBankAccountId])
+}
+
+model AccountingSetting {
+  id                   String   @id @default("default")
+  baseCurrency         String   @default("LKR")
+  fiscalYearStartMonth Int      @default(1)
+  updatedById          String?  @db.Uuid
+  updatedAt            DateTime @updatedAt
+  updatedBy            User?    @relation("AccountingSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model ExchangeRate {
+  id            String   @id @default(uuid()) @db.Uuid
+  fromCurrency  String
+  toCurrency    String
+  rate          Decimal  @db.Decimal(18, 8)
+  effectiveDate DateTime @db.Date
+  source        String   @default("MANUAL")
+  isActive      Boolean  @default(true)
+  createdById   String   @db.Uuid
+  updatedById   String   @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdBy     User     @relation("ExchangeRateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy     User     @relation("ExchangeRateUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@unique([fromCurrency, toCurrency, effectiveDate])
+  @@index([fromCurrency, toCurrency, isActive, effectiveDate])
+}
+
+model TaxCode {
+  id               String            @id @default(uuid()) @db.Uuid
+  code             String            @unique
+  name             String
+  rate             Decimal           @db.Decimal(7, 4)
+  taxType          String
+  classification   TaxClassification
+  effectiveFrom    DateTime          @db.Date
+  isRecoverable    Boolean           @default(false)
+  isActive         Boolean           @default(true)
+  glAccountId      String?           @db.Uuid
+  createdById      String            @db.Uuid
+  updatedById      String            @db.Uuid
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  glAccount        GlAccount?        @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  createdBy        User              @relation("TaxCodeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy        User              @relation("TaxCodeUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  customerInvoices CustomerInvoice[]
+  supplierInvoices SupplierInvoice[]
+
+  @@index([classification, isActive, effectiveFrom])
+  @@index([glAccountId])
+}
+
+model AccountingPeriod {
+  id               String                 @id @default(uuid()) @db.Uuid
+  name             String                 @unique
+  startDate        DateTime               @db.Date
+  endDate          DateTime               @db.Date
+  fiscalYear       Int
+  status           AccountingPeriodStatus @default(OPEN)
+  closeNotes       String?
+  validationResult Json?
+  createdById      String?                @db.Uuid
+  closedById       String?                @db.Uuid
+  closedAt         DateTime?
+  reopenedById     String?                @db.Uuid
+  reopenedAt       DateTime?
+  reopenReason     String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  createdBy        User?                  @relation("AccountingPeriodCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  closedBy         User?                  @relation("AccountingPeriodClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  reopenedBy       User?                  @relation("AccountingPeriodReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+
+  @@index([startDate, endDate, status])
+  @@index([fiscalYear, status])
+}
+
+model BookingAdjustment {
+  id           String                @id @default(uuid()) @db.Uuid
+  bookingId    String                @db.Uuid
+  type         BookingAdjustmentType
+  amount       Decimal               @db.Decimal(12, 2)
+  currency     String
+  reason       String
+  createdById  String                @db.Uuid
+  approvedById String?               @db.Uuid
+  approvedAt   DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  booking      Booking               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  createdBy    User                  @relation("BookingAdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy   User?                 @relation("BookingAdjustmentApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, type, createdAt])
+}
+
+model Reconciliation {
+  id                        String                      @id @default(uuid()) @db.Uuid
+  bookingId                 String                      @unique @db.Uuid
+  status                    ReconciliationStatus        @default(PENDING)
+  passengerPaymentsVerified Boolean                     @default(false)
+  supplierCostsVerified     Boolean                     @default(false)
+  supplierPaymentsVerified  Boolean                     @default(false)
+  sellingPriceVerified      Boolean                     @default(false)
+  feesVerified              Boolean                     @default(false)
+  adjustmentsVerified       Boolean                     @default(false)
+  profitVerified            Boolean                     @default(false)
+  reconciledById            String?                     @db.Uuid
+  reconciledAt              DateTime?
+  notes                     String?
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  booking                   Booking                     @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  reconciledBy              User?                       @relation("ReconciliationCompletedBy", fields: [reconciledById], references: [id], onDelete: SetNull)
+  discrepancies             ReconciliationDiscrepancy[]
+
+  @@index([status, updatedAt])
+}
+
+model ReconciliationDiscrepancy {
+  id               String            @id @default(uuid()) @db.Uuid
+  reconciliationId String            @db.Uuid
+  bookingId        String            @db.Uuid
+  type             DiscrepancyType
+  description      String
+  amountDifference Decimal?          @db.Decimal(12, 2)
+  currency         String?
+  status           DiscrepancyStatus @default(OPEN)
+  assignedUserId   String?           @db.Uuid
+  createdById      String            @db.Uuid
+  resolvedById     String?           @db.Uuid
+  resolvedAt       DateTime?
+  resolutionNotes  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  reconciliation   Reconciliation    @relation(fields: [reconciliationId], references: [id], onDelete: Restrict)
+  booking          Booking           @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  assignedUser     User?             @relation("DiscrepancyAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy        User              @relation("DiscrepancyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  resolvedBy       User?             @relation("DiscrepancyResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, status, createdAt])
+  @@index([reconciliationId, status])
+  @@index([assignedUserId, status])
+}
+
+model BookingReference {
+  id         String               @id @default(uuid()) @db.Uuid
+  bookingId  String               @db.Uuid
+  type       BookingReferenceType
+  reference  String
+  supplierId String?              @db.Uuid
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  booking    Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  supplier   Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([supplierId])
+}
+
+model BookingDocument {
+  id               String                  @id @default(uuid()) @db.Uuid
+  bookingId        String                  @db.Uuid
+  fileName         String
+  fileType         String
+  storageKey       String
+  category         BookingDocumentCategory
+  uploadedById     String                  @db.Uuid
+  createdAt        DateTime                @default(now())
+  booking          Booking                 @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  uploadedBy       User                    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  customerInvoices CustomerInvoice[]       @relation("CustomerInvoiceDocument")
+  supplierInvoices SupplierInvoice[]       @relation("SupplierInvoiceDocument")
+
+  @@index([bookingId])
+}
+
+model BookingNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  bookingId   String   @db.Uuid
+  content     String
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId, createdAt])
+}
+
+model BookingTask {
+  id             String            @id @default(uuid()) @db.Uuid
+  bookingId      String            @db.Uuid
+  title          String
+  description    String?
+  assignedUserId String?           @db.Uuid
+  dueAt          DateTime?
+  status         BookingTaskStatus @default(OPEN)
+  createdById    String            @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  booking        Booking           @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  assignedUser   User?             @relation("BookingTaskAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy      User              @relation("BookingTaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([bookingId, status, dueAt])
+  @@index([assignedUserId, status])
+}
+
+model EmployeeCounter {
+  id         Int      @id @default(1)
+  nextNumber Int
+  updatedAt  DateTime @updatedAt
+}
+
+model Employee {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  userId                   String?                    @unique @db.Uuid
+  employeeNumber           String                     @unique
+  firstName                String
+  lastName                 String
+  personalEmail            String?
+  workEmail                String?
+  workPhone                String?
+  phone                    String?
+  jobTitle                 String
+  organizationLevel        OrganizationLevel          @default(STAFF)
+  departmentId             String                     @db.Uuid
+  managerId                String?                    @db.Uuid
+  attendancePolicyId       String?                    @db.Uuid
+  employmentType           EmploymentType
+  employmentStatus         EmploymentStatus           @default(ACTIVE)
+  joinDate                 DateTime                   @db.Date
+  endDate                  DateTime?                  @db.Date
+  dateOfBirth              DateTime?                  @db.Date
+  address                  String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  onboardingStatus         ProcessStatus              @default(NOT_STARTED)
+  offboardingStatus        ProcessStatus              @default(NOT_STARTED)
+  erpAccountDisabled       Boolean                    @default(false)
+  emailAccessRemoved       Boolean                    @default(false)
+  vpnRemoved               Boolean                    @default(false)
+  deviceReturnChecked      Boolean                    @default(false)
+  telephonyRemoved         Boolean                    @default(false)
+  otherAccessRemoved       Boolean                    @default(false)
+  archivedAt               DateTime?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  user                     User?                      @relation("EmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
+  department               Department                 @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  manager                  Employee?                  @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  attendancePolicy         AttendancePolicy?          @relation(fields: [attendancePolicyId], references: [id], onDelete: SetNull)
+  reports                  Employee[]                 @relation("EmployeeManager")
+  attendance               Attendance[]
+  shifts                   EmployeeShift[]
+  leaveRequests            LeaveRequest[]
+  documents                EmployeeDocument[]
+  employmentHistory        EmploymentHistory[]
+  customFieldValues        EmployeeCustomFieldValue[]
+  leaveBalances            LeaveBalance[]
+  leavePolicies            EmployeeLeavePolicy[]
+  onboardingTasks          OnboardingTask[]
+  offboardingTasks         OffboardingTask[]
+  documentAcknowledgements DocumentAcknowledgement[]
+  accessReviews            EmployeeAccessReview[]
+  exitInterviews           ExitInterview[]
+  assetAssignments         AssetAssignment[]
+  requestedTickets         ITTicket[]
+  accessRequests           AccessRequest[]
+
+  @@index([departmentId, employmentStatus])
+  @@index([managerId])
+  @@index([attendancePolicyId])
+  @@index([lastName, firstName])
+}
+
+model Attendance {
+  id           String                  @id @default(uuid()) @db.Uuid
+  employeeId   String                  @db.Uuid
+  date         DateTime                @db.Date
+  checkInAt    DateTime?
+  checkOutAt   DateTime?
+  status       AttendanceStatus        @default(PRESENT)
+  notes        String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  employee     Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  workSessions AttendanceWorkSession[]
+  breaks       AttendanceBreak[]
+
+  @@unique([employeeId, date])
+  @@index([date, status])
+}
+
+model AttendanceWorkSession {
+  id           String     @id @default(uuid()) @db.Uuid
+  attendanceId String     @db.Uuid
+  startedAt    DateTime
+  endedAt      DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId, startedAt])
+}
+
+model AttendanceBreak {
+  id           String     @id @default(uuid()) @db.Uuid
+  attendanceId String     @db.Uuid
+  startedAt    DateTime
+  endedAt      DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId, startedAt])
+}
+
+model AttendancePolicy {
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String     @unique
+  dailyBreakMinutes Int?
+  maxBreakSessions  Int?
+  flexibleBreaks    Boolean    @default(false)
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  employees         Employee[]
+}
+
+model Shift {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String          @unique
+  startTime String
+  endTime   String
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  employees EmployeeShift[]
+}
+
+model EmployeeShift {
+  id            String    @id @default(uuid()) @db.Uuid
+  employeeId    String    @db.Uuid
+  shiftId       String    @db.Uuid
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift         Shift     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([shiftId])
+}
+
+model LeaveRequest {
+  id           String             @id @default(uuid()) @db.Uuid
+  employeeId   String             @db.Uuid
+  leaveType    LeaveType
+  startDate    DateTime           @db.Date
+  endDate      DateTime           @db.Date
+  reason       String
+  status       LeaveRequestStatus @default(PENDING)
+  reviewedById String?            @db.Uuid
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  reviewedBy   User?              @relation("LeaveReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  approvals    LeaveApproval[]
+
+  @@index([employeeId, status, startDate])
+  @@index([status, createdAt])
+}
+
+model EmployeeDocument {
+  id               String                     @id @default(uuid()) @db.Uuid
+  employeeId       String                     @db.Uuid
+  fileName         String
+  fileType         String
+  storageKey       String
+  category         EmployeeDocumentCategory
+  visibility       EmployeeDocumentVisibility @default(HR_ONLY)
+  expiryDate       DateTime?                  @db.Date
+  uploadedById     String                     @db.Uuid
+  createdAt        DateTime                   @default(now())
+  employee         Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  uploadedBy       User                       @relation("EmployeeDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  versions         EmployeeDocumentVersion[]
+  acknowledgements DocumentAcknowledgement[]
+
+  @@index([employeeId, category])
+  @@index([expiryDate])
+}
+
+model EmploymentHistory {
+  id                String               @id @default(uuid()) @db.Uuid
+  employeeId        String               @db.Uuid
+  jobTitle          String
+  organizationLevel OrganizationLevel    @default(STAFF)
+  departmentId      String               @db.Uuid
+  managerId         String?              @db.Uuid
+  employmentType    EmploymentType
+  employmentStatus  EmploymentStatus
+  effectiveFrom     DateTime             @db.Date
+  effectiveTo       DateTime?            @db.Date
+  changeType        EmploymentChangeType
+  reason            String?
+  changedById       String               @db.Uuid
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  employee          Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveFrom])
+}
+
+model EmployeeCustomFieldDefinition {
+  id            String                     @id @default(uuid()) @db.Uuid
+  name          String
+  code          String                     @unique
+  fieldType     CustomFieldType
+  isRequired    Boolean                    @default(false)
+  isActive      Boolean                    @default(true)
+  selectOptions Json?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  values        EmployeeCustomFieldValue[]
+}
+
+model EmployeeCustomFieldValue {
+  id           String                        @id @default(uuid()) @db.Uuid
+  employeeId   String                        @db.Uuid
+  definitionId String                        @db.Uuid
+  value        Json
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  employee     Employee                      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  definition   EmployeeCustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, definitionId])
+  @@index([definitionId])
+}
+
+model LeavePolicy {
+  id                   String                @id @default(uuid()) @db.Uuid
+  name                 String
+  leaveType            LeaveType
+  annualEntitlement    Decimal               @db.Decimal(8, 2)
+  accrualMethod        LeaveAccrualMethod    @default(ANNUAL)
+  accrualAmount        Decimal               @default(0) @db.Decimal(8, 2)
+  allowCarryForward    Boolean               @default(false)
+  maxCarryForward      Decimal               @default(0) @db.Decimal(8, 2)
+  allowNegativeBalance Boolean               @default(false)
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  employees            EmployeeLeavePolicy[]
+
+  @@unique([name, leaveType])
+  @@index([leaveType, isActive])
+}
+
+model EmployeeLeavePolicy {
+  id            String      @id @default(uuid()) @db.Uuid
+  employeeId    String      @db.Uuid
+  leavePolicyId String      @db.Uuid
+  effectiveFrom DateTime    @db.Date
+  effectiveTo   DateTime?   @db.Date
+  createdAt     DateTime    @default(now())
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leavePolicy   LeavePolicy @relation(fields: [leavePolicyId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([leavePolicyId])
+}
+
+model LeaveBalance {
+  id               String    @id @default(uuid()) @db.Uuid
+  employeeId       String    @db.Uuid
+  leaveType        LeaveType
+  year             Int
+  openingBalance   Decimal   @default(0) @db.Decimal(8, 2)
+  accrued          Decimal   @default(0) @db.Decimal(8, 2)
+  used             Decimal   @default(0) @db.Decimal(8, 2)
+  adjusted         Decimal   @default(0) @db.Decimal(8, 2)
+  remainingBalance Decimal   @default(0) @db.Decimal(8, 2)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, leaveType, year])
+  @@index([year, leaveType])
+}
+
+model LeaveApprovalPolicy {
+  id                      String    @id @default(uuid()) @db.Uuid
+  leaveType               LeaveType @unique
+  requiresManagerApproval Boolean   @default(true)
+  requiresHrApproval      Boolean   @default(true)
+  isActive                Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+
+model LeaveApproval {
+  id             String              @id @default(uuid()) @db.Uuid
+  leaveRequestId String              @db.Uuid
+  approvalLevel  LeaveApprovalLevel
+  approverUserId String?             @db.Uuid
+  status         LeaveApprovalStatus @default(PENDING)
+  comment        String?
+  reviewedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  leaveRequest   LeaveRequest        @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  approver       User?               @relation("LeaveApprovalApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+
+  @@unique([leaveRequestId, approvalLevel])
+  @@index([approverUserId, status])
+}
+
+model OnboardingTemplate {
+  id        String                   @id @default(uuid()) @db.Uuid
+  name      String                   @unique
+  isActive  Boolean                  @default(true)
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  tasks     OnboardingTemplateTask[]
+}
+
+model OnboardingTemplateTask {
+  id               String             @id @default(uuid()) @db.Uuid
+  templateId       String             @db.Uuid
+  title            String
+  description      String?
+  category         HrTaskCategory
+  assignedRole     String?
+  dueDaysAfterJoin Int?
+  requiresDocument Boolean            @default(false)
+  sortOrder        Int                @default(0)
+  template         OnboardingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, sortOrder])
+}
+
+model OnboardingTask {
+  id                 String         @id @default(uuid()) @db.Uuid
+  employeeId         String         @db.Uuid
+  title              String
+  description        String?
+  category           HrTaskCategory
+  assignedRole       String?
+  assignedUserId     String?        @db.Uuid
+  dueDate            DateTime?      @db.Date
+  status             HrTaskStatus   @default(PENDING)
+  requiresDocument   Boolean        @default(false)
+  employeeDocumentId String?        @db.Uuid
+  completedById      String?        @db.Uuid
+  completedAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  employee           Employee       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, status])
+  @@index([assignedUserId, status])
+}
+
+model OffboardingTemplate {
+  id        String                    @id @default(uuid()) @db.Uuid
+  name      String                    @unique
+  isActive  Boolean                   @default(true)
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  tasks     OffboardingTemplateTask[]
+}
+
+model OffboardingTemplateTask {
+  id               String              @id @default(uuid()) @db.Uuid
+  templateId       String              @db.Uuid
+  title            String
+  description      String?
+  category         HrTaskCategory
+  assignedRole     String?
+  dueDaysFromEnd   Int?
+  blocksCompletion Boolean             @default(true)
+  sortOrder        Int                 @default(0)
+  template         OffboardingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, sortOrder])
+}
+
+model OffboardingTask {
+  id               String         @id @default(uuid()) @db.Uuid
+  employeeId       String         @db.Uuid
+  title            String
+  description      String?
+  category         HrTaskCategory
+  assignedRole     String?
+  assignedUserId   String?        @db.Uuid
+  dueDate          DateTime?      @db.Date
+  status           HrTaskStatus   @default(PENDING)
+  blocksCompletion Boolean        @default(true)
+  completedById    String?        @db.Uuid
+  completedAt      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  employee         Employee       @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, status])
+  @@index([assignedUserId, status])
+}
+
+model EmployeeDocumentVersion {
+  id                 String           @id @default(uuid()) @db.Uuid
+  employeeDocumentId String           @db.Uuid
+  version            Int
+  fileName           String
+  storageKey         String
+  uploadedById       String           @db.Uuid
+  createdAt          DateTime         @default(now())
+  employeeDocument   EmployeeDocument @relation(fields: [employeeDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeDocumentId, version])
+}
+
+model DocumentAcknowledgement {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  employeeId         String                        @db.Uuid
+  employeeDocumentId String                        @db.Uuid
+  status             DocumentAcknowledgementStatus @default(PENDING)
+  acknowledgedAt     DateTime?
+  typedName          String?
+  ipAddress          String?
+  createdAt          DateTime                      @default(now())
+  employee           Employee                      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeDocument   EmployeeDocument              @relation(fields: [employeeDocumentId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, employeeDocumentId])
+}
+
+model DepartmentRoleMapping {
+  id           String   @id @default(uuid()) @db.Uuid
+  departmentId String   @db.Uuid
+  roleId       String   @db.Uuid
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([departmentId, roleId])
+}
+
+model EmployeeAccessReview {
+  id               String                  @id @default(uuid()) @db.Uuid
+  employeeId       String                  @db.Uuid
+  userId           String?                 @db.Uuid
+  triggerType      AccessReviewTriggerType
+  oldDepartmentId  String?                 @db.Uuid
+  newDepartmentId  String?                 @db.Uuid
+  oldRoles         Json
+  recommendedRoles Json
+  status           AccessReviewStatus      @default(PENDING)
+  reviewedById     String?                 @db.Uuid
+  reviewedAt       DateTime?
+  notes            String?
+  createdAt        DateTime                @default(now())
+  employee         Employee                @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([employeeId, createdAt])
+}
+
+model ExitInterview {
+  id                String    @id @default(uuid()) @db.Uuid
+  employeeId        String    @db.Uuid
+  interviewerUserId String?   @db.Uuid
+  scheduledAt       DateTime?
+  completedAt       DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  employee          Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, scheduledAt])
+}
+
+model ITAssetCounter {
+  id         Int      @id @default(1)
+  nextNumber Int
+  updatedAt  DateTime @updatedAt
+}
+
+model ITAsset {
+  id              String            @id @default(uuid()) @db.Uuid
+  assetTag        String            @unique
+  assetType       ITAssetType
+  manufacturer    String?
+  model           String?
+  serialNumber    String?           @unique
+  status          ITAssetStatus     @default(AVAILABLE)
+  purchaseDate    DateTime?         @db.Date
+  warrantyEndDate DateTime?         @db.Date
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  assignments     AssetAssignment[]
+
+  @@index([assetType, status])
+}
+
+model AssetAssignment {
+  id                    String    @id @default(uuid()) @db.Uuid
+  assetId               String    @db.Uuid
+  employeeId            String    @db.Uuid
+  assignedAt            DateTime  @default(now())
+  assignedById          String    @db.Uuid
+  returnedAt            DateTime?
+  returnedToId          String?   @db.Uuid
+  conditionOnAssignment String?
+  conditionOnReturn     String?
+  notes                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  asset                 ITAsset   @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  employee              Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedBy            User      @relation("AssetAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  returnedTo            User?     @relation("AssetReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull)
+
+  @@unique([assetId], map: "AssetAssignment_one_active_per_asset", where: { returnedAt: null })
+  @@index([assetId, returnedAt])
+  @@index([employeeId, returnedAt])
+}
+
+model ITTicketCounter {
+  year       Int      @id
+  nextNumber Int
+  updatedAt  DateTime @updatedAt
+}
+
+model ITTicket {
+  id                    String             @id @default(uuid()) @db.Uuid
+  ticketNumber          String             @unique
+  requestedByEmployeeId String             @db.Uuid
+  assignedToUserId      String?            @db.Uuid
+  category              ITTicketCategory
+  priority              ITTicketPriority   @default(MEDIUM)
+  status                ITTicketStatus     @default(OPEN)
+  subject               String
+  description           String
+  resolution            String?
+  resolvedAt            DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  requestedByEmployee   Employee           @relation(fields: [requestedByEmployeeId], references: [id], onDelete: Restrict)
+  assignedToUser        User?              @relation("ITTicketAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  activities            ITTicketActivity[]
+
+  @@index([requestedByEmployeeId, status])
+  @@index([assignedToUserId, status])
+  @@index([status, priority, createdAt])
+}
+
+model ITTicketActivity {
+  id        String               @id @default(uuid()) @db.Uuid
+  ticketId  String               @db.Uuid
+  userId    String               @db.Uuid
+  type      ITTicketActivityType
+  message   String
+  createdAt DateTime             @default(now())
+  ticket    ITTicket             @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+}
+
+model AccessRequest {
+  id            String              @id @default(uuid()) @db.Uuid
+  employeeId    String              @db.Uuid
+  requestedById String              @db.Uuid
+  systemName    String
+  accessType    String
+  reason        String
+  status        AccessRequestStatus @default(PENDING)
+  reviewedById  String?             @db.Uuid
+  reviewedAt    DateTime?
+  reviewNotes   String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  employee      Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestedBy   User                @relation("AccessRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy    User?               @relation("AccessRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, status])
+  @@index([status, createdAt])
+}
+
+model MarketingDealCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model MarketingDeal {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  dealCode                 String                      @unique
+  title                    String
+  shortDescription         String?
+  destination              String
+  departureLocation        String
+  departureDate            DateTime?                   @db.Date
+  travelStartDate          DateTime                    @db.Date
+  travelEndDate            DateTime                    @db.Date
+  price                    Decimal                     @db.Decimal(12, 2)
+  currency                 String                      @db.VarChar(3)
+  baggage                  String?
+  keyTerms                 String
+  expiryAt                 DateTime
+  scheduledFor             DateTime?
+  status                   MarketingDealStatus         @default(DRAFT)
+  approvalStatus           MarketingDealApprovalStatus @default(DRAFT)
+  contentReviewRequired    Boolean                     @default(false)
+  websitePublicationStatus WebsitePublicationStatus    @default(NOT_CONFIGURED)
+  websiteActionMessage     String?
+  expiringNotificationAt   DateTime?
+  expiredNotificationAt    DateTime?
+  createdById              String                      @db.Uuid
+  updatedById              String                      @db.Uuid
+  approvedById             String?                     @db.Uuid
+  approvedAt               DateTime?
+  suspendedById            String?                     @db.Uuid
+  suspendedAt              DateTime?
+  suspensionReason         String?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  createdBy                User                        @relation("MarketingDealCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy                User                        @relation("MarketingDealUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  approvedBy               User?                       @relation("MarketingDealApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  suspendedBy              User?                       @relation("MarketingDealSuspendedBy", fields: [suspendedById], references: [id], onDelete: SetNull)
+  channels                 MarketingDealChannel[]
+  campaigns                MarketingCampaign[]
+  content                  MarketingContent[]
+  calendarEntries          MarketingCalendarEntry[]
+  externalMarketingEvents  ExternalMarketingEvent[]
+  marketingAttributions    MarketingAttribution[]
+  marketingOpportunities   MarketingOpportunity[]
+  neoTrioIdeas             NeoTrioIdea[]
+  neoTrioProductions       NeoTrioProduction[]
+  neoTrioLibraryItems      NeoTrioLibraryItem[]
+
+  @@index([status, expiryAt])
+  @@index([approvalStatus, status])
+  @@index([destination])
+  @@index([scheduledFor])
+}
+
+model MarketingDealChannel {
+  id                String                 @id @default(uuid()) @db.Uuid
+  dealId            String                 @db.Uuid
+  channel           MarketingChannel
+  status            MarketingChannelStatus @default(NOT_PUBLISHED)
+  externalReference String?
+  publishedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  deal              MarketingDeal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, channel])
+  @@index([channel, status])
+}
+
+model MarketingCampaignCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model MarketingContentCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model MarketingCampaign {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  campaignCode            String                   @unique
+  name                    String
+  description             String?
+  objective               String?
+  status                  MarketingCampaignStatus  @default(DRAFT)
+  startDate               DateTime?                @db.Date
+  endDate                 DateTime?                @db.Date
+  ownerUserId             String                   @db.Uuid
+  dealId                  String?                  @db.Uuid
+  createdById             String                   @db.Uuid
+  updatedById             String                   @db.Uuid
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  owner                   User                     @relation("MarketingCampaignOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  deal                    MarketingDeal?           @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  createdBy               User                     @relation("MarketingCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy               User                     @relation("MarketingCampaignUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  content                 MarketingContent[]
+  calendarEntries         MarketingCalendarEntry[]
+  externalMarketingEvents ExternalMarketingEvent[]
+  marketingAttributions   MarketingAttribution[]
+  marketingOpportunities  MarketingOpportunity[]
+  neoTrioIdeas            NeoTrioIdea[]
+  neoTrioProductions      NeoTrioProduction[]
+  neoTrioLibraryItems     NeoTrioLibraryItem[]
+
+  @@index([status, startDate])
+  @@index([ownerUserId])
+  @@index([dealId])
+}
+
+model MarketingContent {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  contentCode             String                     @unique
+  title                   String
+  description             String?
+  contentType             MarketingContentType
+  stage                   MarketingContentStage      @default(IDEA)
+  campaignId              String?                    @db.Uuid
+  dealId                  String?                    @db.Uuid
+  assignedUserId          String?                    @db.Uuid
+  deadline                DateTime?                  @db.Date
+  priority                MarketingPriority          @default(NORMAL)
+  currentVersionId        String?                    @unique @db.Uuid
+  reviewRequired          Boolean                    @default(false)
+  dealReviewReason        String?
+  createdById             String                     @db.Uuid
+  updatedById             String                     @db.Uuid
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  campaign                MarketingCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal                    MarketingDeal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  assignedUser            User?                      @relation("MarketingContentAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy               User                       @relation("MarketingContentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy               User                       @relation("MarketingContentUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  versions                MarketingContentVersion[]  @relation("ContentVersions")
+  currentVersion          MarketingContentVersion?   @relation("CurrentContentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  approvals               MarketingContentApproval[]
+  comments                MarketingContentComment[]
+  publications            MarketingPublication[]
+  calendarEntries         MarketingCalendarEntry[]
+  externalMarketingEvents ExternalMarketingEvent[]
+  marketingAttributions   MarketingAttribution[]
+  marketingOpportunities  MarketingOpportunity[]
+  neoTrioProduction       NeoTrioProduction?
+  neoTrioLibraryItems     NeoTrioLibraryItem[]
+
+  @@index([stage, deadline])
+  @@index([assignedUserId, stage])
+  @@index([campaignId])
+  @@index([dealId])
+}
+
+model MarketingContentVersion {
+  id                String                     @id @default(uuid()) @db.Uuid
+  contentId         String                     @db.Uuid
+  versionNumber     Int
+  fileName          String?
+  fileType          String?
+  fileSize          Int?
+  storageKey        String?
+  caption           String?
+  copyText          String?
+  notes             String?
+  createdById       String                     @db.Uuid
+  createdAt         DateTime                   @default(now())
+  content           MarketingContent           @relation("ContentVersions", fields: [contentId], references: [id], onDelete: Cascade)
+  currentForContent MarketingContent?          @relation("CurrentContentVersion")
+  createdBy         User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  approvals         MarketingContentApproval[]
+  publications      MarketingPublication[]
+
+  @@unique([contentId, versionNumber])
+  @@index([createdById])
+}
+
+model MarketingContentApproval {
+  id               String                         @id @default(uuid()) @db.Uuid
+  contentId        String                         @db.Uuid
+  contentVersionId String                         @db.Uuid
+  status           MarketingContentApprovalStatus @default(PENDING)
+  requestedById    String                         @db.Uuid
+  requestedAt      DateTime                       @default(now())
+  reviewerUserId   String?                        @db.Uuid
+  reviewedAt       DateTime?
+  comment          String?
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  content          MarketingContent               @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  contentVersion   MarketingContentVersion        @relation(fields: [contentVersionId], references: [id], onDelete: Restrict)
+  requestedBy      User                           @relation("ContentApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewer         User?                          @relation("ContentApprovalReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, requestedAt])
+  @@index([contentId, createdAt])
+  @@index([reviewerUserId, status])
+}
+
+model MarketingContentComment {
+  id        String           @id @default(uuid()) @db.Uuid
+  contentId String           @db.Uuid
+  userId    String           @db.Uuid
+  comment   String
+  createdAt DateTime         @default(now())
+  content   MarketingContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([contentId, createdAt])
+}
+
+model MarketingPublication {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  contentId             String                     @db.Uuid
+  contentVersionId      String                     @db.Uuid
+  channel               MarketingChannel
+  status                MarketingPublicationStatus @default(DRAFT)
+  scheduledAt           DateTime?
+  publishedAt           DateTime?
+  externalReference     String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  content               MarketingContent           @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  contentVersion        MarketingContentVersion    @relation(fields: [contentVersionId], references: [id], onDelete: Restrict)
+  calendarEntries       MarketingCalendarEntry[]
+  marketingAttributions MarketingAttribution[]
+  neoTrioLibraryItem    NeoTrioLibraryItem?
+
+  @@index([contentId, status])
+  @@index([channel, status])
+}
+
+model MarketingSalesSignal {
+  id              String                     @id @default(uuid()) @db.Uuid
+  createdByUserId String                     @db.Uuid
+  leadId          String?                    @db.Uuid
+  customerId      String?                    @db.Uuid
+  destination     String?
+  signalType      MarketingSalesSignalType
+  title           String
+  description     String
+  priority        MarketingPriority          @default(NORMAL)
+  status          MarketingSalesSignalStatus @default(NEW)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  createdBy       User                       @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  lead            Lead?                      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer        Customer?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([status, priority, createdAt])
+  @@index([destination, createdAt])
+  @@index([createdByUserId, createdAt])
+  @@index([leadId])
+  @@index([customerId])
+}
+
+model MarketingAttribution {
+  id                String                         @id @default(uuid()) @db.Uuid
+  campaignId        String?                        @db.Uuid
+  dealId            String?                        @db.Uuid
+  contentId         String?                        @db.Uuid
+  publicationId     String?                        @db.Uuid
+  leadId            String                         @db.Uuid
+  customerId        String                         @db.Uuid
+  saleSubmissionId  String?                        @db.Uuid
+  bookingId         String?                        @db.Uuid
+  confidence        MarketingAttributionConfidence
+  source            MarketingAttributionSource
+  externalReference String?
+  utmSource         String?
+  utmMedium         String?
+  utmCampaign       String?
+  utmContent        String?
+  reason            String?
+  isActive          Boolean                        @default(true)
+  firstTouchAt      DateTime                       @default(now())
+  convertedAt       DateTime?
+  supersededAt      DateTime?
+  createdByUserId   String                         @db.Uuid
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+  campaign          MarketingCampaign?             @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal              MarketingDeal?                 @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  content           MarketingContent?              @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  publication       MarketingPublication?          @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  lead              Lead                           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  customer          Customer                       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  saleSubmission    SaleSubmission?                @relation(fields: [saleSubmissionId], references: [id], onDelete: SetNull)
+  booking           Booking?                       @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdBy         User                           @relation("MarketingAttributionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([source, externalReference])
+  @@index([campaignId, firstTouchAt])
+  @@index([dealId, firstTouchAt])
+  @@index([contentId, firstTouchAt])
+  @@index([leadId, isActive])
+  @@index([bookingId])
+  @@index([saleSubmissionId])
+}
+
+model MarketingOpportunity {
+  id                String                     @id @default(uuid()) @db.Uuid
+  sourceType        MarketingOpportunitySource
+  sourceReferenceId String?
+  title             String
+  description       String
+  destination       String?
+  priority          MarketingPriority          @default(NORMAL)
+  status            MarketingOpportunityStatus @default(NEW)
+  createdByUserId   String                     @db.Uuid
+  assignedUserId    String?                    @db.Uuid
+  campaignId        String?                    @db.Uuid
+  contentId         String?                    @db.Uuid
+  dealId            String?                    @db.Uuid
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  createdBy         User                       @relation("MarketingOpportunityCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  assignedUser      User?                      @relation("MarketingOpportunityAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  campaign          MarketingCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  content           MarketingContent?          @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  deal              MarketingDeal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  neoTrioIdea       NeoTrioIdea?
+
+  @@index([status, priority, createdAt])
+  @@index([destination, status])
+  @@index([sourceType, sourceReferenceId])
+  @@index([assignedUserId, status])
+}
+
+model NeoTrioIdeaCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model NeoTrioProductionCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model NeoTrioSeriesCounter {
+  year       Int      @id
+  nextNumber Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model NeoTrioCharacter {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  code                 String                       @unique
+  name                 String
+  shortDescription     String?
+  personality          String?
+  appearanceGuidelines String?
+  voiceStyleGuidelines String?
+  generalGuidelines    String?
+  isActive             Boolean                      @default(true)
+  createdById          String                       @db.Uuid
+  updatedById          String                       @db.Uuid
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  createdBy            User                         @relation("NeoTrioCharacterCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy            User                         @relation("NeoTrioCharacterUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  assets               NeoTrioCharacterAsset[]
+  ideas                NeoTrioIdeaCharacter[]
+  productions          NeoTrioProductionCharacter[]
+
+  @@index([isActive, name])
+}
+
+model NeoTrioCharacterAsset {
+  id              String                    @id @default(uuid()) @db.Uuid
+  characterId     String                    @db.Uuid
+  versionGroupKey String                    @db.Uuid
+  assetType       NeoTrioCharacterAssetType
+  title           String
+  description     String?
+  fileName        String
+  storageKey      String
+  mimeType        String
+  fileSize        Int
+  version         Int
+  status          NeoTrioAssetStatus        @default(DRAFT)
+  isMasterAsset   Boolean                   @default(false)
+  uploadedById    String                    @db.Uuid
+  approvedById    String?                   @db.Uuid
+  approvedAt      DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  character       NeoTrioCharacter          @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  uploadedBy      User                      @relation("NeoTrioCharacterAssetUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  approvedBy      User?                     @relation("NeoTrioCharacterAssetApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([versionGroupKey, version])
+  @@index([characterId, status, assetType])
+  @@index([characterId, isMasterAsset])
+}
+
+model NeoTrioIdea {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  ideaCode               String                 @unique
+  title                  String
+  description            String
+  ideaType               NeoTrioIdeaType
+  destination            String?
+  trendReference         String?
+  priority               MarketingPriority      @default(NORMAL)
+  status                 NeoTrioIdeaStatus      @default(NEW)
+  submittedById          String                 @db.Uuid
+  assignedUserId         String?                @db.Uuid
+  campaignId             String?                @db.Uuid
+  dealId                 String?                @db.Uuid
+  marketingOpportunityId String?                @unique @db.Uuid
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  submittedBy            User                   @relation("NeoTrioIdeaSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  assignedUser           User?                  @relation("NeoTrioIdeaAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  campaign               MarketingCampaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal                   MarketingDeal?         @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  marketingOpportunity   MarketingOpportunity?  @relation(fields: [marketingOpportunityId], references: [id], onDelete: SetNull)
+  characters             NeoTrioIdeaCharacter[]
+  production             NeoTrioProduction?
+
+  @@index([status, priority, createdAt])
+  @@index([assignedUserId, status])
+  @@index([campaignId])
+  @@index([destination])
+}
+
+model NeoTrioIdeaCharacter {
+  ideaId      String           @db.Uuid
+  characterId String           @db.Uuid
+  idea        NeoTrioIdea      @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  character   NeoTrioCharacter @relation(fields: [characterId], references: [id], onDelete: Restrict)
+
+  @@id([ideaId, characterId])
+  @@index([characterId, ideaId])
+}
+
+model NeoTrioSeries {
+  id          String              @id @default(uuid()) @db.Uuid
+  seriesCode  String              @unique
+  name        String
+  description String?
+  isActive    Boolean             @default(true)
+  createdById String              @db.Uuid
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  productions NeoTrioProduction[]
+
+  @@index([isActive, name])
+}
+
+model NeoTrioProduction {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  productionCode     String                       @unique
+  title              String
+  description        String?
+  productionType     NeoTrioProductionType
+  stage              NeoTrioProductionStage       @default(IDEA)
+  ideaId             String?                      @unique @db.Uuid
+  campaignId         String?                      @db.Uuid
+  dealId             String?                      @db.Uuid
+  marketingContentId String?                      @unique @db.Uuid
+  seriesId           String?                      @db.Uuid
+  assignedUserId     String?                      @db.Uuid
+  deadline           DateTime?                    @db.Date
+  plannedPublishAt   DateTime?
+  priority           MarketingPriority            @default(NORMAL)
+  createdById        String                       @db.Uuid
+  updatedById        String                       @db.Uuid
+  publishedAt        DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  idea               NeoTrioIdea?                 @relation(fields: [ideaId], references: [id], onDelete: SetNull)
+  campaign           MarketingCampaign?           @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal               MarketingDeal?               @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  marketingContent   MarketingContent?            @relation(fields: [marketingContentId], references: [id], onDelete: SetNull)
+  series             NeoTrioSeries?               @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  assignedUser       User?                        @relation("NeoTrioProductionAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy          User                         @relation("NeoTrioProductionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy          User                         @relation("NeoTrioProductionUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  characters         NeoTrioProductionCharacter[]
+  scripts            NeoTrioScript[]
+  assets             NeoTrioProductionAsset[]
+  libraryItem        NeoTrioLibraryItem?
+
+  @@index([stage, priority, createdAt])
+  @@index([assignedUserId, stage])
+  @@index([deadline])
+  @@index([plannedPublishAt])
+  @@index([campaignId])
+  @@index([dealId])
+  @@index([seriesId])
+}
+
+model NeoTrioProductionCharacter {
+  productionId String            @db.Uuid
+  characterId  String            @db.Uuid
+  production   NeoTrioProduction @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  character    NeoTrioCharacter  @relation(fields: [characterId], references: [id], onDelete: Restrict)
+
+  @@id([productionId, characterId])
+  @@index([characterId, productionId])
+}
+
+model NeoTrioScript {
+  id            String            @id @default(uuid()) @db.Uuid
+  productionId  String            @db.Uuid
+  versionNumber Int
+  title         String
+  scriptText    String
+  notes         String?
+  createdById   String            @db.Uuid
+  createdAt     DateTime          @default(now())
+  production    NeoTrioProduction @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  createdBy     User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([productionId, versionNumber])
+  @@index([createdById])
+}
+
+model NeoTrioProductionAsset {
+  id              String                     @id @default(uuid()) @db.Uuid
+  productionId    String                     @db.Uuid
+  versionGroupKey String                     @db.Uuid
+  assetType       NeoTrioProductionAssetType
+  title           String?
+  fileName        String
+  storageKey      String
+  mimeType        String
+  fileSize        Int
+  version         Int
+  createdById     String                     @db.Uuid
+  createdAt       DateTime                   @default(now())
+  production      NeoTrioProduction          @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  createdBy       User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([versionGroupKey, version])
+  @@index([productionId, assetType])
+}
+
+model NeoTrioLibraryItem {
+  id                 String                @id @default(uuid()) @db.Uuid
+  productionId       String                @unique @db.Uuid
+  marketingContentId String?               @db.Uuid
+  publicationId      String?               @unique @db.Uuid
+  title              String
+  libraryType        NeoTrioLibraryType
+  publishedAt        DateTime
+  campaignId         String?               @db.Uuid
+  dealId             String?               @db.Uuid
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  production         NeoTrioProduction     @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  marketingContent   MarketingContent?     @relation(fields: [marketingContentId], references: [id], onDelete: SetNull)
+  publication        MarketingPublication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  campaign           MarketingCampaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal               MarketingDeal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  @@index([publishedAt])
+  @@index([libraryType, publishedAt])
+  @@index([campaignId])
+  @@index([dealId])
+}
+
+model MarketingCalendarEntry {
+  id                String                     @id @default(uuid()) @db.Uuid
+  title             String
+  description       String?
+  entryType         MarketingCalendarEntryType
+  startAt           DateTime
+  endAt             DateTime?
+  allDay            Boolean                    @default(false)
+  status            MarketingCalendarStatus    @default(PLANNED)
+  campaignId        String?                    @db.Uuid
+  dealId            String?                    @db.Uuid
+  contentId         String?                    @db.Uuid
+  publicationId     String?                    @db.Uuid
+  assignedUserId    String?                    @db.Uuid
+  channel           MarketingChannel?
+  source            MarketingCalendarSource    @default(INTERNAL)
+  externalReference String?
+  createdById       String                     @db.Uuid
+  updatedById       String                     @db.Uuid
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  campaign          MarketingCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deal              MarketingDeal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  content           MarketingContent?          @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  publication       MarketingPublication?      @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  assignedUser      User?                      @relation("MarketingCalendarAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy         User                       @relation("MarketingCalendarCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                       @relation("MarketingCalendarUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@index([startAt, endAt])
+  @@index([entryType, status])
+  @@index([campaignId])
+  @@index([dealId])
+  @@index([contentId])
+  @@index([assignedUserId])
+}
+
+model ExternalMarketingEvent {
+  id                String                     @id @default(uuid()) @db.Uuid
+  provider          IntegrationProviderType
+  externalReference String
+  externalType      MarketingCalendarEntryType
+  title             String
+  scheduledAt       DateTime?
+  publishedAt       DateTime?
+  status            MarketingCalendarStatus
+  channel           MarketingChannel?
+  campaignId        String?                    @db.Uuid
+  contentId         String?                    @db.Uuid
+  rawMetadataSafe   Json?
+  lastSyncedAt      DateTime
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  campaign          MarketingCampaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  content           MarketingContent?          @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  dealId            String?                    @db.Uuid
+  deal              MarketingDeal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalReference])
+  @@index([scheduledAt, publishedAt])
+  @@index([channel, status])
+}
+
+model IntegrationProvider {
+  id               String                  @id @default(uuid()) @db.Uuid
+  type             IntegrationProviderType
+  name             String
+  status           IntegrationStatus       @default(NOT_CONFIGURED)
+  lastCheckedAt    DateTime?
+  lastSuccessAt    DateTime?
+  lastErrorAt      DateTime?
+  lastErrorMessage String?
+  isEnabled        Boolean                 @default(false)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  events           IntegrationEvent[]
+
+  @@unique([type, name])
+  @@index([status, isEnabled])
+}
+
+model IntegrationEvent {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  providerId         String                    @db.Uuid
+  direction          IntegrationEventDirection
+  eventType          String
+  externalReference  String?
+  internalEntityType String?
+  internalEntityId   String?
+  status             IntegrationEventStatus    @default(PENDING)
+  errorMessage       String?
+  createdAt          DateTime                  @default(now())
+  provider           IntegrationProvider       @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@unique([providerId, eventType, externalReference])
+  @@index([providerId, status, createdAt])
+  @@index([internalEntityType, internalEntityId])
+}
+
+model CallLog {
+  id             String        @id @default(uuid()) @db.Uuid
+  leadId         String?       @db.Uuid
+  customerId     String?       @db.Uuid
+  userId         String        @db.Uuid
+  direction      CallDirection
+  phoneNumber    String
+  externalCallId String?
+  startedAt      DateTime
+  answeredAt     DateTime?
+  endedAt        DateTime?
+  status         CallStatus
+  createdAt      DateTime      @default(now())
+  lead           Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([leadId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([userId, createdAt])
+  @@index([externalCallId])
+}
+
+model FollowUp {
+  id                       String         @id @default(uuid()) @db.Uuid
+  leadId                   String         @db.Uuid
+  assignedUserId           String         @db.Uuid
+  type                     FollowUpType
+  scheduledAt              DateTime
+  note                     String
+  status                   FollowUpStatus @default(SCHEDULED)
+  completedAt              DateTime?
+  completedById            String?        @db.Uuid
+  createdById              String         @db.Uuid
+  dueNotificationSentAt    DateTime?
+  missedNotificationSentAt DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  lead                     Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedUser             User           @relation("FollowUpAssignedUser", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  completedBy              User?          @relation("FollowUpCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  createdBy                User           @relation("FollowUpCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([leadId, status, scheduledAt])
+  @@index([assignedUserId, status, scheduledAt])
+  @@index([status, scheduledAt])
 }
 
 model LeadActivity {
