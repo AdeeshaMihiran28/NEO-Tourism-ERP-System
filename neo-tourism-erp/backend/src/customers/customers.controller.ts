@@ -7,13 +7,16 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { getRequestMetadata } from '../common/request-metadata';
 import { CustomersService } from './customers.service';
 import { CreateCustomerNoteDto } from './dto/create-customer-note.dto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -42,8 +45,13 @@ export class CustomersController {
   create(
     @Body() dto: CreateCustomerDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
   ) {
-    return this.customersService.create(dto, user.id);
+    return this.customersService.create(
+      dto,
+      user.id,
+      getRequestMetadata(request),
+    );
   }
 
   @Patch(':id')
@@ -52,8 +60,14 @@ export class CustomersController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateCustomerDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
   ) {
-    return this.customersService.update(id, dto, user.id);
+    return this.customersService.update(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(request),
+    );
   }
 
   @Get(':id/notes')
@@ -68,7 +82,13 @@ export class CustomersController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: CreateCustomerNoteDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
   ) {
-    return this.customersService.createNote(id, dto, user.id);
+    return this.customersService.createNote(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(request),
+    );
   }
 }

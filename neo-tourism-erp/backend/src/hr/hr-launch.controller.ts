@@ -33,6 +33,7 @@ import {
   HrReportQueryDto,
   LeaveBalanceQueryDto,
   LeaveCalendarQueryDto,
+  RejectLeaveDto,
   ReviewAccessDto,
   SetCustomFieldValueDto,
   StartProcessDto,
@@ -185,6 +186,23 @@ export class HrLaunchController {
     );
   }
 
+  @Post('leave/:id/manager-reject')
+  @Permissions('hr.leave.manager_approve')
+  managerReject(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectLeaveDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.rejectLeaveLevel(
+      id,
+      LeaveApprovalLevel.MANAGER,
+      dto,
+      user,
+      getRequestMetadata(req),
+    );
+  }
+
   @Post('leave/:id/hr-approve')
   @Permissions('hr.leave.hr_approve')
   hrApprove(
@@ -194,6 +212,23 @@ export class HrLaunchController {
     @Req() req: Request,
   ) {
     return this.hr.approveLeaveLevel(
+      id,
+      LeaveApprovalLevel.HR,
+      dto,
+      user,
+      getRequestMetadata(req),
+    );
+  }
+
+  @Post('leave/:id/hr-reject')
+  @Permissions('hr.leave.hr_approve')
+  hrReject(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectLeaveDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.rejectLeaveLevel(
       id,
       LeaveApprovalLevel.HR,
       dto,

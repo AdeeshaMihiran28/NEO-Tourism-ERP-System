@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -18,9 +19,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { getRequestMetadata } from '../common/request-metadata';
 import {
+  AssignAttendancePolicyDto,
   AssignEmployeeShiftDto,
   AssignShiftDto,
   AttendanceQueryDto,
+  CreateAttendancePolicyDto,
   CreateEmployeeDocumentDto,
   CreateEmployeeDto,
   CreateLeaveRequestDto,
@@ -28,17 +31,23 @@ import {
   EmployeeQueryDto,
   ReviewLeaveDto,
   UpdateAttendanceDto,
+  UpdateAttendancePolicyDto,
   UpdateEmployeeDto,
   UpdateEmploymentStatusDto,
   UpdateProcessDto,
   UpdateShiftDto,
 } from './dto/hr.dto';
+import { ImportEmployeesDto } from './dto/hr-launch.dto';
+import { HrLaunchService } from './hr-launch.service';
 import { HrService } from './hr.service';
 
 @Controller('hr')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class HrController {
-  constructor(private readonly hr: HrService) {}
+  constructor(
+    private readonly hr: HrService,
+    private readonly launch: HrLaunchService,
+  ) {}
 
   @Post('employees')
   @Permissions('hr.employee.create')
@@ -47,12 +56,28 @@ export class HrController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    return this.hr.createEmployee(dto, user.id, getRequestMetadata(req));
+    return this.hr.createEmployee(dto, user, getRequestMetadata(req));
   }
   @Get('employees')
   @Permissions('hr.employee.view')
   employees(@Query() query: EmployeeQueryDto) {
     return this.hr.findEmployees(query);
+  }
+  @Post('employees/import')
+  @Permissions('hr.employee.import')
+  importEmployees(
+    @Body() dto: ImportEmployeesDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.launch.importEmployees(dto, user.id, getRequestMetadata(req));
+  }
+  @Get('employees/export')
+  @Permissions('hr.employee.export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="employees.csv"')
+  exportEmployees(@CurrentUser() user: AuthenticatedUser, @Req() req: Request) {
+    return this.launch.exportEmployees(user.id, getRequestMetadata(req));
   }
   @Get('employees/:id')
   @Permissions('hr.employee.view')
@@ -70,7 +95,7 @@ export class HrController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    return this.hr.updateEmployee(id, dto, user.id, getRequestMetadata(req));
+    return this.hr.updateEmployee(id, dto, user, getRequestMetadata(req));
   }
   @Patch('employees/:id/status')
   @Permissions('hr.employee.status.manage')
@@ -81,6 +106,15 @@ export class HrController {
     @Req() req: Request,
   ) {
     return this.hr.updateStatus(id, dto, user.id, getRequestMetadata(req));
+  }
+  @Patch('employees/:id/archive')
+  @Permissions('hr.employee.status.manage')
+  archiveEmployee(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.archiveEmployee(id, user.id, getRequestMetadata(req));
   }
   @Patch('employees/:id/onboarding')
   @Permissions('hr.employee.edit')
@@ -127,6 +161,71 @@ export class HrController {
   ) {
     return this.hr.checkOut(user.id, getRequestMetadata(req));
   }
+  @Post('attendance/break/start') startBreak(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.startBreak(user.id, getRequestMetadata(req));
+  }
+  @Post('attendance/break/end') endBreak(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.endBreak(user.id, getRequestMetadata(req));
+  }
+  @Get('attendance/status') attendanceStatus(
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.hr.attendanceStatus(user.id);
+  }
+  @Get('attendance/policies')
+  @Permissions('hr.attendance.manage')
+  attendancePolicies() {
+    return this.hr.attendancePolicies();
+  }
+  @Post('attendance/policies')
+  @Permissions('hr.attendance.manage')
+  createAttendancePolicy(
+    @Body() dto: CreateAttendancePolicyDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.createAttendancePolicy(
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
+  @Patch('attendance/policies/:id')
+  @Permissions('hr.attendance.manage')
+  updateAttendancePolicy(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateAttendancePolicyDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.updateAttendancePolicy(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
+  @Patch('employees/:id/attendance-policy')
+  @Permissions('hr.attendance.manage')
+  assignAttendancePolicy(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AssignAttendancePolicyDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.assignAttendancePolicy(
+      id,
+      dto.attendancePolicyId,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
   @Get('attendance/my') myAttendance(@CurrentUser() user: AuthenticatedUser) {
     return this.hr.myAttendance(user.id);
   }
@@ -162,8 +261,10 @@ export class HrController {
   }
   @Post('employee-shifts') @Permissions('hr.shift.manage') assignShift(
     @Body() dto: AssignShiftDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.hr.assignShift(dto);
+    return this.hr.assignShift(dto, user.id, getRequestMetadata(req));
   }
 
   @Post('employees/:id/shifts')
@@ -171,8 +272,15 @@ export class HrController {
   assignEmployeeShift(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: AssignEmployeeShiftDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.hr.assignEmployeeShift(id, dto);
+    return this.hr.assignEmployeeShift(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
   }
 
   @Post('leave')

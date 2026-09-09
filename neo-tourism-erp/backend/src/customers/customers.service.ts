@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Customer, Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
+import type { RequestMetadata } from '../common/request-metadata';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCustomerNoteDto } from './dto/create-customer-note.dto';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
@@ -80,6 +81,21 @@ export class CustomersService {
           orderBy: { createdAt: 'desc' },
           take: 20,
         },
+        bookings: {
+          select: {
+            id: true,
+            folderNumber: true,
+            destination: true,
+            travelStartDate: true,
+            travelEndDate: true,
+            finalServiceDate: true,
+            travelStatus: true,
+            operationsStatus: true,
+            accountsStatus: true,
+            folderStatus: true,
+          },
+          orderBy: { travelStartDate: 'desc' },
+        },
         _count: { select: { leads: true } },
       },
     });
@@ -89,16 +105,31 @@ export class CustomersService {
     }
 
     const { _count, ...details } = customer;
+    const completedTrips = customer.bookings.filter(
+      (booking) => booking.travelStatus === 'TRAVEL_COMPLETE',
+    ).length;
+    const closedBookings = customer.bookings.filter(
+      (booking) => booking.folderStatus === 'CLOSED',
+    ).length;
     return {
       ...details,
       summary: {
         totalLeads: _count.leads,
-        totalBookings: 0,
+        totalBookings: customer.bookings.length,
+        completedTrips,
+        upcomingTrips: customer.bookings.filter(
+          (booking) => booking.travelStatus === 'UPCOMING',
+        ).length,
+        repeatPassenger: completedTrips > 0 || closedBookings > 0,
       },
     };
   }
 
-  async create(dto: CreateCustomerDto, actorId: string) {
+  async create(
+    dto: CreateCustomerDto,
+    actorId: string,
+    requestMetadata?: RequestMetadata,
+  ) {
     const email = dto.email?.trim().toLowerCase();
     const phone = dto.phone?.trim();
     const possibleDuplicates = await this.findPossibleDuplicates(email, phone);
@@ -128,13 +159,14 @@ export class CustomersService {
         select: customerListSelect,
       });
 
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId,
+          actorUserId: actorId,
           entityType: 'Customer',
           entityId: customer.id,
           action: 'CUSTOMER_CREATED',
           newValues: this.customerSnapshot(customer),
+          requestMetadata,
         },
         transaction,
       );
@@ -143,7 +175,12 @@ export class CustomersService {
     });
   }
 
-  async update(id: string, dto: UpdateCustomerDto, actorId: string) {
+  async update(
+    id: string,
+    dto: UpdateCustomerDto,
+    actorId: string,
+    requestMetadata?: RequestMetadata,
+  ) {
     return this.prisma.$transaction(async (transaction) => {
       const existingCustomer = await transaction.customer.findUnique({
         where: { id },
@@ -184,23 +221,15 @@ export class CustomersService {
         select: customerListSelect,
       });
 
-      const statusChanged =
-        dto.isActive !== undefined &&
-        dto.isActive !== existingCustomer.isActive;
-      const action = statusChanged
-        ? dto.isActive
-          ? 'CUSTOMER_ACTIVATED'
-          : 'CUSTOMER_DEACTIVATED'
-        : 'CUSTOMER_UPDATED';
-
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId,
+          actorUserId: actorId,
           entityType: 'Customer',
           entityId: id,
-          action,
+          action: 'CUSTOMER_UPDATED',
           oldValues: this.customerSnapshot(existingCustomer),
           newValues: this.customerSnapshot(customer),
+          requestMetadata,
         },
         transaction,
       );
@@ -227,6 +256,7 @@ export class CustomersService {
     customerId: string,
     dto: CreateCustomerNoteDto,
     actorId: string,
+    requestMetadata?: RequestMetadata,
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const customer = await transaction.customer.findUnique({
@@ -251,13 +281,14 @@ export class CustomersService {
         },
       });
 
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId,
+          actorUserId: actorId,
           entityType: 'Customer',
           entityId: customerId,
-          action: 'CUSTOMER_NOTE_CREATED',
+          action: 'CUSTOMER_NOTE_ADDED',
           newValues: { noteId: note.id, content: note.content },
+          requestMetadata,
         },
         transaction,
       );

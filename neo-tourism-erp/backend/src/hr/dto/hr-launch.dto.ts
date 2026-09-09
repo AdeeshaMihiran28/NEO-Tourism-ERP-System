@@ -97,6 +97,10 @@ export class ApprovalCommentDto {
   @IsOptional() @IsString() @MaxLength(1000) comment?: string;
 }
 
+export class RejectLeaveDto {
+  @IsString() @IsNotEmpty() @MaxLength(1000) reason!: string;
+}
+
 export class UpsertLeaveApprovalPolicyDto {
   @IsEnum(LeaveType) leaveType!: LeaveType;
   @IsBoolean() requiresManagerApproval!: boolean;
