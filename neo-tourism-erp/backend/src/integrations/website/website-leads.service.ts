@@ -121,6 +121,41 @@ export class WebsiteLeadsService {
             createdById: actor.id,
           },
         });
+        const tracking = await this.resolveTracking(tx, dto);
+        const hasTrackedInput = Boolean(
+          dto.campaignId ||
+          dto.campaignCode ||
+          dto.dealId ||
+          dto.dealCode ||
+          dto.contentId ||
+          dto.contentCode ||
+          dto.utmCampaign ||
+          dto.utmSource ||
+          dto.externalCampaignReference,
+        );
+        const confidence =
+          tracking.invalid || !hasTrackedInput ? 'UNATTRIBUTED' : 'TRACKED';
+        const attribution = await tx.marketingAttribution.create({
+          data: {
+            campaignId: tracking.invalid ? undefined : tracking.campaignId,
+            dealId: tracking.invalid ? undefined : tracking.dealId,
+            contentId: tracking.invalid ? undefined : tracking.contentId,
+            leadId: lead.id,
+            customerId: customer.id,
+            confidence,
+            source: 'WEBSITE',
+            externalReference: `website-attribution:${event.id}`,
+            utmSource: dto.utmSource?.trim(),
+            utmMedium: dto.utmMedium?.trim(),
+            utmCampaign:
+              dto.utmCampaign?.trim() ?? dto.externalCampaignReference?.trim(),
+            utmContent: dto.utmContent?.trim(),
+            reason: tracking.invalid
+              ? `Invalid tracking reference: ${tracking.invalid}`
+              : undefined,
+            createdByUserId: actor.id,
+          },
+        });
         await tx.leadActivity.create({
           data: {
             leadId: lead.id,
@@ -139,6 +174,9 @@ export class WebsiteLeadsService {
             status: IntegrationEventStatus.SUCCESS,
             internalEntityType: 'Lead',
             internalEntityId: lead.id,
+            ...(tracking.invalid && {
+              errorMessage: `Lead created unattributed because ${tracking.invalid}.`,
+            }),
           },
         });
         await tx.integrationProvider.update({
@@ -166,11 +204,37 @@ export class WebsiteLeadsService {
           },
           tx,
         );
+        await this.audit.log(
+          {
+            actorUserId: actor.id,
+            entityType: 'MarketingAttribution',
+            entityId: attribution.id,
+            action: 'MARKETING_ATTRIBUTION_CREATED',
+            newValues: {
+              leadId: lead.id,
+              campaignId: attribution.campaignId,
+              dealId: attribution.dealId,
+              contentId: attribution.contentId,
+              confidence: attribution.confidence,
+              source: attribution.source,
+            },
+            metadata: tracking.invalid
+              ? { warning: tracking.invalid }
+              : undefined,
+            requestMetadata: metadata,
+          },
+          tx,
+        );
         return {
           duplicate: false,
           customerId: customer.id,
           leadId: lead.id,
           status: IntegrationEventStatus.SUCCESS,
+          attribution: {
+            id: attribution.id,
+            confidence: attribution.confidence,
+            warning: tracking.invalid ?? null,
+          },
         };
       });
       return result;
@@ -222,6 +286,51 @@ export class WebsiteLeadsService {
         }),
       },
     });
+  }
+
+  private async resolveTracking(
+    tx: Prisma.TransactionClient,
+    dto: WebsiteLeadDto,
+  ) {
+    const campaign =
+      dto.campaignId || dto.campaignCode
+        ? await tx.marketingCampaign.findFirst({
+            where: dto.campaignId
+              ? { id: dto.campaignId }
+              : { campaignCode: dto.campaignCode!.trim() },
+            select: { id: true, dealId: true },
+          })
+        : null;
+    if ((dto.campaignId || dto.campaignCode) && !campaign)
+      return { invalid: 'the supplied Campaign reference was not found' };
+    const deal =
+      dto.dealId || dto.dealCode
+        ? await tx.marketingDeal.findFirst({
+            where: dto.dealId
+              ? { id: dto.dealId }
+              : { dealCode: dto.dealCode!.trim() },
+            select: { id: true },
+          })
+        : null;
+    if ((dto.dealId || dto.dealCode) && !deal)
+      return { invalid: 'the supplied Deal reference was not found' };
+    const content =
+      dto.contentId || dto.contentCode
+        ? await tx.marketingContent.findFirst({
+            where: dto.contentId
+              ? { id: dto.contentId }
+              : { contentCode: dto.contentCode!.trim() },
+            select: { id: true, campaignId: true, dealId: true },
+          })
+        : null;
+    if ((dto.contentId || dto.contentCode) && !content)
+      return { invalid: 'the supplied Content reference was not found' };
+    return {
+      invalid: null,
+      campaignId: content?.campaignId ?? campaign?.id,
+      dealId: content?.dealId ?? deal?.id ?? campaign?.dealId,
+      contentId: content?.id,
+    };
   }
 
   private async systemUser() {
