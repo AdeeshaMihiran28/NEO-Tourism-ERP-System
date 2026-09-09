@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PrismaModule } from '../prisma/prisma.module';
+import { jwtSecret } from '../common/security-config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -15,14 +16,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       useFactory: () => {
-        const secret = process.env.JWT_SECRET;
-
-        if (!secret) {
-          throw new Error('JWT_SECRET is not configured.');
-        }
-
         return {
-          secret,
+          secret: jwtSecret(),
           signOptions: {
             expiresIn: (process.env.JWT_EXPIRES_IN ??
               '8h') as JwtSignOptions['expiresIn'],
