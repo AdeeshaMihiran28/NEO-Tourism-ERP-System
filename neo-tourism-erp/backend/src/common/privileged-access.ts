@@ -1,0 +1,33 @@
+export const PRIVILEGED_ROLE_NAMES = [
+  'SUPER_ADMIN',
+  'SYSTEM_ADMIN',
+  'FINANCE_APPROVER',
+  'OWNER',
+];
+
+export const PRIVILEGED_PERMISSION_CODES = [
+  'user.manage_privileged_roles',
+  'organization.owner.manage',
+  'role.manage',
+  'finance.payment.verify',
+  'finance.adjustment.approve',
+  'bank.reconciliation.finalize',
+  'journal.approve',
+  'journal.post',
+  'journal.reverse',
+  'accounting.period.close',
+  'accounting.period.reopen',
+  'hr.employee.create',
+  'hr.employee.edit',
+  'hr.employee.status.manage',
+  'hr.employee.import',
+  'hr.custom_field.manage',
+  'hr.document.manage',
+  'hr.leave.balance.manage',
+  'hr.leave.hr_approve',
+  'hr.leave.manage',
+  'hr.offboarding.manage',
+  'hr.onboarding.manage',
+  'hr.shift.manage',
+  'hr.access_review.manage',
+];
