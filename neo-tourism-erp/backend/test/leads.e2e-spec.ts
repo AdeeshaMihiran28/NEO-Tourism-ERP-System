@@ -250,6 +250,23 @@ describe('Sales Lead Centre (e2e)', () => {
     expect(
       ((claimA.status === 409 ? claimA : claimB).body as ConflictBody).message,
     ).toBe('Lead has already been assigned.');
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: {
+        userId: winningUserId,
+        entityId: leadId,
+        type: 'LEAD_ASSIGNED',
+      },
+    });
+    expect(notification).toMatchObject({
+      title: 'Lead Assigned',
+      message: 'Lead Passenger has been added to your pipeline.',
+      isRead: false,
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: { entityId: leadId, action: 'LEAD_ASSIGNED' },
+      }),
+    ).resolves.toBe(1);
   });
 
   it('returns only the current agent leads and rejects team access', async () => {

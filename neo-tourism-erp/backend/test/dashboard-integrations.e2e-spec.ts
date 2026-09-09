@@ -291,6 +291,12 @@ describe('Management dashboard and integration foundation (e2e)', () => {
     expect(lead.status).toBe('NEW');
     expect(lead.assignedUserId).toBeNull();
     expect(lead.source).toBe('WEBSITE');
+    expect(
+      await prisma.marketingAttribution.findFirst({
+        where: { leadId: lead.id, isActive: true },
+        select: { confidence: true, source: true },
+      }),
+    ).toEqual({ confidence: 'UNATTRIBUTED', source: 'WEBSITE' });
     const live = await request(app.getHttpServer())
       .get('/leads/live?limit=100')
       .set('Authorization', `Bearer ${managementToken}`)
@@ -324,6 +330,14 @@ describe('Management dashboard and integration foundation (e2e)', () => {
       .set('x-webhook-secret', 'wrong-secret')
       .send({ ...newPayload, externalReference: `WEB-BAD-${suffix}` })
       .expect(403);
+
+    const leadCount = await prisma.lead.count();
+    await request(app.getHttpServer())
+      .post('/integrations/website/leads')
+      .set('x-webhook-secret', process.env.WEBSITE_WEBHOOK_SECRET!)
+      .send({ ...newPayload, externalReference: undefined })
+      .expect(400);
+    expect(await prisma.lead.count()).toBe(leadCount);
     expect(
       await prisma.integrationEvent.count({
         where: {

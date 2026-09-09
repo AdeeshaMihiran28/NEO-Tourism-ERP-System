@@ -10,11 +10,14 @@ describe('Accounts payments and reconciliation (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let financeToken: string;
+  let approverToken: string;
   let salesToken: string;
   let bookingId: string;
   let passengerPaymentId: string;
   let supplierPaymentId: string;
   let discrepancyId: string;
+  let customerInvoiceId: string;
+  let supplierInvoiceId: string;
   const suffix = Date.now();
   const password = 'AccountsTestPassword123!';
   const ids: Record<string, string> = {};
@@ -75,13 +78,23 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       prisma.department.findUniqueOrThrow({ where: { name: 'Sales' } }),
     ]);
     const hash = await bcrypt.hash(password, 4);
-    const [financeUser, salesUser] = await Promise.all([
+    const [financeUser, approverUser, salesUser] = await Promise.all([
       prisma.user.create({
         data: {
           email: `finance-${suffix}@test.local`,
           passwordHash: hash,
           firstName: 'Finance',
           lastName: 'Tester',
+          departmentId: accountsDepartment.id,
+          roles: { create: { roleId: financeRole.id } },
+        },
+      }),
+      prisma.user.create({
+        data: {
+          email: `finance-approver-${suffix}@test.local`,
+          passwordHash: hash,
+          firstName: 'Finance',
+          lastName: 'Approver',
           departmentId: accountsDepartment.id,
           roles: { create: { roleId: financeRole.id } },
         },
@@ -98,7 +111,20 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       }),
     ]);
     ids.financeUser = financeUser.id;
+    ids.approverUser = approverUser.id;
     ids.salesUser = salesUser.id;
+    const exchangeRate = await prisma.exchangeRate.create({
+      data: {
+        fromCurrency: 'GBP',
+        toCurrency: 'LKR',
+        rate: '400',
+        effectiveDate: new Date('2026-01-02'),
+        source: 'E2E fixture',
+        createdById: financeUser.id,
+        updatedById: financeUser.id,
+      },
+    });
+    ids.exchangeRate = exchangeRate.id;
     const customer = await prisma.customer.create({
       data: {
         firstName: 'Accounts',
@@ -169,23 +195,44 @@ describe('Accounts payments and reconciliation (e2e)', () => {
         .expect(200);
       return (response.body as { accessToken: string }).accessToken;
     };
-    [financeToken, salesToken] = await Promise.all([
+    [financeToken, approverToken, salesToken] = await Promise.all([
       login(financeUser.email),
+      login(approverUser.email),
       login(salesUser.email),
     ]);
   });
 
   afterAll(async () => {
+    await prisma.journalLine.deleteMany({
+      where: { journalEntry: { createdById: ids.financeUser } },
+    });
+    await prisma.journalEntry.deleteMany({
+      where: { createdById: ids.financeUser },
+    });
     await prisma.notification.deleteMany({
-      where: { userId: { in: [ids.financeUser, ids.salesUser] } },
+      where: {
+        userId: { in: [ids.financeUser, ids.approverUser, ids.salesUser] },
+      },
     });
     await prisma.auditLog.deleteMany({
-      where: { actorId: { in: [ids.financeUser, ids.salesUser] } },
+      where: {
+        actorId: { in: [ids.financeUser, ids.approverUser, ids.salesUser] },
+      },
     });
     await prisma.reconciliationDiscrepancy.deleteMany({ where: { bookingId } });
     await prisma.reconciliation.deleteMany({ where: { bookingId } });
+    await prisma.customerAdvanceAllocation.deleteMany({
+      where: { invoice: { bookingId } },
+    });
+    await prisma.supplierAdvanceAllocation.deleteMany({
+      where: { invoice: { bookingId } },
+    });
     await prisma.passengerPayment.deleteMany({ where: { bookingId } });
     await prisma.supplierPayment.deleteMany({ where: { bookingId } });
+    await prisma.customerAdvance.deleteMany({ where: { bookingId } });
+    await prisma.supplierAdvance.deleteMany({ where: { bookingId } });
+    await prisma.customerInvoice.deleteMany({ where: { bookingId } });
+    await prisma.supplierInvoice.deleteMany({ where: { bookingId } });
     await prisma.bookingAdjustment.deleteMany({ where: { bookingId } });
     await prisma.bookingFinance.deleteMany({ where: { bookingId } });
     await prisma.bookingSupplier.deleteMany({ where: { bookingId } });
@@ -194,8 +241,11 @@ describe('Accounts payments and reconciliation (e2e)', () => {
     await prisma.saleSubmission.delete({ where: { id: ids.sale } });
     await prisma.lead.delete({ where: { id: ids.lead } });
     await prisma.customer.delete({ where: { id: ids.customer } });
+    await prisma.exchangeRate.delete({ where: { id: ids.exchangeRate } });
     await prisma.user.deleteMany({
-      where: { id: { in: [ids.financeUser, ids.salesUser] } },
+      where: {
+        id: { in: [ids.financeUser, ids.approverUser, ids.salesUser] },
+      },
     });
     await prisma.role.deleteMany({
       where: { id: { in: [ids.financeRole, ids.salesRole] } },
@@ -218,12 +268,150 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       .expect(403);
   });
 
-  it('creates and verifies passenger and supplier payments', async () => {
+  it('creates booking-linked invoices and safely allocates advances', async () => {
+    const customerInvoice = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/customer-invoices`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        invoiceNumber: `CUS-${suffix}`,
+        invoiceDate: '2026-08-20',
+        dueDate: '2026-09-20',
+        currency: 'GBP',
+        totalAmount: '2300.10',
+      })
+      .expect(201);
+    customerInvoiceId = (customerInvoice.body as { id: string }).id;
+    expect(
+      customerInvoice.body as { customerId: string; bookingId: string },
+    ).toMatchObject({ customerId: ids.customer, bookingId });
+
+    const supplierInvoice = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/supplier-invoices`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        bookingSupplierId: ids.bookingSupplier,
+        invoiceNumber: `SUP-${suffix}`,
+        invoiceDate: '2026-08-20',
+        dueDate: '2026-09-20',
+        currency: 'GBP',
+        totalAmount: '1800.05',
+      })
+      .expect(201);
+    supplierInvoiceId = (supplierInvoice.body as { id: string }).id;
+    expect(
+      supplierInvoice.body as { supplierId: string; bookingId: string },
+    ).toMatchObject({ supplierId: ids.supplier, bookingId });
+
+    const customerAdvance = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/customer-advances`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        amount: '100.00',
+        currency: 'GBP',
+        paymentMethod: 'BANK_TRANSFER',
+        paymentReference: 'CA-1',
+        paymentDate: '2026-08-21',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/customer-advances/${(customerAdvance.body as { id: string }).id}/allocations`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ invoiceId: customerInvoiceId, amount: '100.00' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/customer-advances/${(customerAdvance.body as { id: string }).id}/allocations`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ invoiceId: customerInvoiceId, amount: '0.01' })
+      .expect(409);
+
+    const supplierAdvance = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/supplier-advances`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        bookingSupplierId: ids.bookingSupplier,
+        amount: '50.00',
+        currency: 'GBP',
+        paymentMethod: 'BANK_TRANSFER',
+        paymentReference: 'SA-1',
+        paymentDate: '2026-08-21',
+      })
+      .expect(201);
+    const supplierAllocation = await request(app.getHttpServer())
+      .post(
+        `/supplier-advances/${(supplierAdvance.body as { id: string }).id}/allocations`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ invoiceId: supplierInvoiceId, amount: '50.00' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/supplier-advances/${(supplierAdvance.body as { id: string }).id}/allocations`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ invoiceId: supplierInvoiceId, amount: '0.01' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(
+        `/supplier-advance-allocations/${(supplierAllocation.body as { id: string }).id}/reverse`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ reason: 'Correct allocation test' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/supplier-advance-allocations/${(supplierAllocation.body as { id: string }).id}/reverse`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ reason: 'Duplicate reversal' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(
+        `/supplier-advances/${(supplierAdvance.body as { id: string }).id}/allocations`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({ invoiceId: supplierInvoiceId, amount: '50.00' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/customer-invoices`)
+      .set('Authorization', `Bearer ${salesToken}`)
+      .send({
+        invoiceNumber: `BLOCKED-${suffix}`,
+        invoiceDate: '2026-08-20',
+        currency: 'GBP',
+        totalAmount: '1.00',
+      })
+      .expect(403);
+    const cancelled = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/customer-invoices`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        invoiceNumber: `VOID-${suffix}`,
+        invoiceDate: '2026-08-20',
+        currency: 'GBP',
+        totalAmount: '999.00',
+        status: 'DRAFT',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/customer-invoices/${(cancelled.body as { id: string }).id}/cancel`,
+      )
+      .set('Authorization', `Bearer ${financeToken}`)
+      .expect(201);
+  }, 15_000);
+
+  it('creates multiple partial customer and supplier payments', async () => {
     const passengerResponse = await request(app.getHttpServer())
       .post(`/bookings/${bookingId}/passenger-payments`)
       .set('Authorization', `Bearer ${financeToken}`)
       .send({
-        amount: '2300.10',
+        customerInvoiceId,
+        amount: '2000.00',
         currency: 'GBP',
         paymentMethod: 'CARD',
         paymentReference: 'PAX-1',
@@ -238,12 +426,25 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       .expect((r) =>
         expect((r.body as { status: string }).status).toBe('VERIFIED'),
       );
+    await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/passenger-payments`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        customerInvoiceId,
+        amount: '200.10',
+        currency: 'GBP',
+        paymentMethod: 'CARD',
+        paymentReference: 'PAX-2',
+        paymentDate: '2026-08-22',
+      })
+      .expect(201);
     const supplierResponse = await request(app.getHttpServer())
       .post(`/bookings/${bookingId}/supplier-payments`)
       .set('Authorization', `Bearer ${financeToken}`)
       .send({
         bookingSupplierId: ids.bookingSupplier,
-        amount: '1800.05',
+        supplierInvoiceId,
+        amount: '800.00',
         currency: 'GBP',
         paymentReference: 'SUP-1',
         paymentDate: '2026-08-22',
@@ -257,6 +458,47 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       .expect((r) =>
         expect((r.body as { status: string }).status).toBe('VERIFIED'),
       );
+    await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/supplier-payments`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        bookingSupplierId: ids.bookingSupplier,
+        supplierInvoiceId,
+        amount: '950.05',
+        currency: 'GBP',
+        paymentReference: 'SUP-2',
+        paymentDate: '2026-08-22',
+      })
+      .expect(201);
+
+    const [receivable, payable] = await Promise.all([
+      request(app.getHttpServer())
+        .get(`/bookings/${bookingId}/customer-invoices`)
+        .set('Authorization', `Bearer ${financeToken}`)
+        .expect(200),
+      request(app.getHttpServer())
+        .get(`/bookings/${bookingId}/supplier-invoices`)
+        .set('Authorization', `Bearer ${financeToken}`)
+        .expect(200),
+    ]);
+    expect(
+      (receivable.body as { id: string }[]).find(
+        (invoice) => invoice.id === customerInvoiceId,
+      ),
+    ).toMatchObject({
+      status: 'PAID',
+      amountPaid: '2300.1',
+      outstanding: '0',
+    });
+    expect(
+      (payable.body as { id: string }[]).find(
+        (invoice) => invoice.id === supplierInvoiceId,
+      ),
+    ).toMatchObject({
+      status: 'PAID',
+      amountPaid: '1800.05',
+      outstanding: '0',
+    });
   });
 
   it('creates and approves an adjustment and calculates decimal-safe totals', async () => {
@@ -274,6 +516,26 @@ describe('Accounts payments and reconciliation (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/booking-adjustments/${adjustmentId}/approve`)
       .set('Authorization', `Bearer ${financeToken}`)
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`/booking-adjustments/${adjustmentId}/approve`)
+      .set('Authorization', `Bearer ${approverToken}`)
+      .expect(201);
+    const refund = await request(app.getHttpServer())
+      .post(`/bookings/${bookingId}/adjustments`)
+      .set('Authorization', `Bearer ${financeToken}`)
+      .send({
+        type: 'REFUND',
+        amount: '0.10',
+        currency: 'GBP',
+        reason: 'Traceable refund',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/booking-adjustments/${(refund.body as { id: string }).id}/approve`,
+      )
+      .set('Authorization', `Bearer ${approverToken}`)
       .expect(201);
     const result = await request(app.getHttpServer())
       .get(`/bookings/${bookingId}/financial-summary`)
@@ -283,8 +545,20 @@ describe('Accounts payments and reconciliation (e2e)', () => {
       sellingPrice: '2300.1',
       supplierCost: '1800.05',
       fees: '0.2',
-      expectedProfit: '500.25',
-      passengerBalance: '0.2',
+      refunds: '0.1',
+      adjustments: '0',
+      expectedProfit: '500.15',
+      grossProfit: '500.15',
+      grossMargin: '21.74',
+      invoicedAmount: '2300.1',
+      customerAdvances: '100',
+      allocatedCustomerAdvances: '100',
+      customerOutstanding: '0',
+      supplierInvoiceAmount: '1800.05',
+      supplierAdvances: '50',
+      allocatedSupplierAdvances: '50',
+      supplierOutstanding: '0',
+      passengerBalance: '0.1',
       supplierBalance: '0',
     });
   });
@@ -356,7 +630,7 @@ describe('Accounts payments and reconciliation (e2e)', () => {
   it('records required finance audit events and completion notification', async () => {
     const actions = (
       await prisma.auditLog.findMany({
-        where: { actorId: ids.financeUser },
+        where: { actorId: { in: [ids.financeUser, ids.approverUser] } },
         select: { action: true },
       })
     ).map((x) => x.action);
@@ -366,6 +640,14 @@ describe('Accounts payments and reconciliation (e2e)', () => {
         'PASSENGER_PAYMENT_VERIFIED',
         'SUPPLIER_PAYMENT_CREATED',
         'SUPPLIER_PAYMENT_VERIFIED',
+        'CUSTOMER_INVOICE_CREATED',
+        'CUSTOMER_INVOICE_CANCELLED',
+        'SUPPLIER_INVOICE_CREATED',
+        'CUSTOMER_ADVANCE_RECORDED',
+        'CUSTOMER_ADVANCE_ALLOCATED',
+        'SUPPLIER_ADVANCE_RECORDED',
+        'SUPPLIER_ADVANCE_ALLOCATED',
+        'SUPPLIER_ADVANCE_ALLOCATION_REVERSED',
         'FINANCIAL_ADJUSTMENT_CREATED',
         'FINANCIAL_ADJUSTMENT_APPROVED',
         'RECONCILIATION_STARTED',

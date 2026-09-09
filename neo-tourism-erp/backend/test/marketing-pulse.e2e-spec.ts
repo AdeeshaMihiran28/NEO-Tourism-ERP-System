@@ -385,7 +385,7 @@ describe('NEO PULSE command hub (e2e)', () => {
       .set('Authorization', `Bearer ${noneToken}`)
       .expect(403);
   });
-  it('calculates deterministic trends and protects low volume while admitting attribution is unavailable', async () => {
+  it('calculates deterministic trends, protects low volume and exposes reliable attribution', async () => {
     const body = (
       await request(app.getHttpServer())
         .get('/marketing/pulse?period=30_DAYS')
@@ -414,7 +414,7 @@ describe('NEO PULSE command hub (e2e)', () => {
         trending: false,
       }),
     );
-    expect(body.crm.campaignEnquiries.status).toBe('NOT_YET_AVAILABLE');
+    expect(body.crm.campaignEnquiries.status).toBe('AVAILABLE');
   });
   it('removes approved work from pending approvals', async () => {
     const before = (

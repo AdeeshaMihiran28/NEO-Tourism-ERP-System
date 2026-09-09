@@ -207,7 +207,7 @@ describe('Customer 360 flow (e2e)', () => {
     expect(notes.body).toHaveLength(1);
     await expect(
       prisma.auditLog.count({
-        where: { entityId: customerId, action: 'CUSTOMER_NOTE_CREATED' },
+        where: { entityId: customerId, action: 'CUSTOMER_NOTE_ADDED' },
       }),
     ).resolves.toBe(1);
   });

@@ -14,6 +14,7 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
   let managerToken: string;
   let salesToken: string;
   let creatorId: string;
+  let managerId: string;
   let dealId: string;
   let campaignId: string;
   let contentId: string;
@@ -22,6 +23,12 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
   const contentIds: string[] = [];
   const campaignIds: string[] = [];
   const dealIds: string[] = [];
+  const publicationIds: string[] = [];
+  const attributionIds: string[] = [];
+  const bookingIds: string[] = [];
+  const saleIds: string[] = [];
+  const leadIds: string[] = [];
+  const customerIds: string[] = [];
   const suffix = Date.now();
   const password = 'CreativeLaunch123!';
 
@@ -97,6 +104,7 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
     const manager = await makeUser('manager', managerRole.id);
     const sales = await makeUser('sales', salesRole.id);
     creatorId = creator.id;
+    managerId = manager.id;
     const login = (email: string) =>
       request(app.getHttpServer())
         .post('/auth/login')
@@ -143,7 +151,7 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
     expect(second.contentCode).not.toBe(first.contentCode);
   });
 
-  it('preserves V1 changes and approves V2 before READY and LIVE', async () => {
+  it('preserves versions and completes approval, schedule, publish, and CRM feedback', async () => {
     await request(app.getHttpServer())
       .patch(`/marketing/content/${contentId}/stage`)
       .set('Authorization', `Bearer ${creatorToken}`)
@@ -165,6 +173,7 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
       .send({
         fileName: 'dubai-v1.png',
         fileType: 'image/png',
+        fileSize: 2048,
         storageKey: `creative/${suffix}/v1.png`,
         caption: 'Dubai from £699',
       })
@@ -201,6 +210,7 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
       .send({
         fileName: 'dubai-v2.png',
         fileType: 'image/png',
+        fileSize: 4096,
         storageKey: `creative/${suffix}/v2.png`,
         caption: 'Dubai £699 · 23kg baggage',
       })
@@ -227,16 +237,130 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
       expect.arrayContaining(['CHANGES_REQUESTED', 'APPROVED']),
     );
     await request(app.getHttpServer())
-      .post(`/marketing/content/${contentId}/go-live`)
+      .post(`/marketing/content/${contentId}/publications`)
+      .set('Authorization', `Bearer ${creatorToken}`)
+      .send({ channel: 'INSTAGRAM', scheduledAt: future(2) })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/marketing/content/${contentId}/publications`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ channel: 'INSTAGRAM', scheduledAt: new Date().toISOString() })
+      .expect(400);
+    const publication = await request(app.getHttpServer())
+      .post(`/marketing/content/${contentId}/publications`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ channel: 'INSTAGRAM', scheduledAt: future(2) })
+      .expect(201);
+    publicationIds.push(publication.body.id as string);
+    await request(app.getHttpServer())
+      .post(`/marketing/content/${contentId}/publications`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ channel: 'INSTAGRAM', scheduledAt: future(3) })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`/marketing/publications/${publication.body.id}/publish`)
       .set('Authorization', `Bearer ${creatorToken}`)
       .send({})
       .expect(403);
     await request(app.getHttpServer())
-      .post(`/marketing/content/${contentId}/go-live`)
+      .post(`/marketing/publications/${publication.body.id}/publish`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ externalReference: `instagram-${suffix}` })
+      .expect(201)
+      .expect(({ body }) => expect(body.status).toBe('PUBLISHED'));
+    await request(app.getHttpServer())
+      .post(`/marketing/publications/${publication.body.id}/publish`)
       .set('Authorization', `Bearer ${managerToken}`)
       .send({})
-      .expect(201)
-      .expect(({ body }) => expect(body.stage).toBe('LIVE'));
+      .expect(409);
+    await expect(
+      prisma.marketingContent.findUniqueOrThrow({ where: { id: contentId } }),
+    ).resolves.toMatchObject({ stage: 'LIVE' });
+
+    const customer = await prisma.customer.create({
+      data: {
+        firstName: 'Marketing',
+        lastName: 'Journey',
+        email: `marketing-journey-${suffix}@test.local`,
+        createdById: managerId,
+        updatedById: managerId,
+      },
+    });
+    customerIds.push(customer.id);
+    const lead = await prisma.lead.create({
+      data: {
+        customerId: customer.id,
+        createdById: managerId,
+        assignedUserId: managerId,
+        source: 'MARKETING_E2E',
+        destination: 'Dubai',
+        status: 'SALE_MADE',
+      },
+    });
+    leadIds.push(lead.id);
+    const sale = await prisma.saleSubmission.create({
+      data: {
+        leadId: lead.id,
+        customerId: customer.id,
+        submittedByUserId: managerId,
+        destination: 'Dubai',
+        sellingPrice: 699,
+        currency: 'GBP',
+        status: 'SUBMITTED_TO_ADMIN',
+        submittedAt: new Date(),
+      },
+    });
+    saleIds.push(sale.id);
+    const booking = await prisma.booking.create({
+      data: {
+        folderNumber: `MKT-${suffix}`,
+        customerId: customer.id,
+        leadId: lead.id,
+        saleSubmissionId: sale.id,
+        salesAdvisorId: managerId,
+        destination: 'Dubai',
+        travelStartDate: new Date(future(30)),
+        sellingPrice: 699,
+        currency: 'GBP',
+        createdById: managerId,
+      },
+    });
+    bookingIds.push(booking.id);
+    const attribution = await prisma.marketingAttribution.create({
+      data: {
+        campaignId,
+        dealId,
+        contentId,
+        publicationId: publication.body.id as string,
+        leadId: lead.id,
+        customerId: customer.id,
+        saleSubmissionId: sale.id,
+        bookingId: booking.id,
+        confidence: 'MANUAL',
+        source: 'OTHER',
+        externalReference: `marketing-journey-${suffix}`,
+        convertedAt: new Date(),
+        createdByUserId: managerId,
+      },
+    });
+    attributionIds.push(attribution.id);
+    await request(app.getHttpServer())
+      .get(`/marketing/signal?campaignId=${campaignId}`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.campaigns).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: campaignId,
+              enquiries: 1,
+              salesMade: 1,
+              bookings: 1,
+              salesContribution: 699,
+            }),
+          ]),
+        ),
+      );
   });
 
   it('flags connected LIVE and READY creative after material Deal changes', async () => {
@@ -279,6 +403,12 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
         })
       ).stage,
     ).toBe('READY');
+    const stalePublication = await request(app.getHttpServer())
+      .post(`/marketing/content/${contentId}/publications`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ channel: 'FACEBOOK', scheduledAt: future(4) })
+      .expect(201);
+    publicationIds.push(stalePublication.body.id as string);
     await request(app.getHttpServer())
       .patch(`/marketing/deals/${dealId}`)
       .set('Authorization', `Bearer ${creatorToken}`)
@@ -292,6 +422,16 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
     });
     expect(flagged.stage).toBe('READY');
     expect(flagged.reviewRequired).toBe(true);
+    await expect(
+      prisma.marketingPublication.findUniqueOrThrow({
+        where: { id: stalePublication.body.id as string },
+      }),
+    ).resolves.toMatchObject({ status: 'REMOVED' });
+    await request(app.getHttpServer())
+      .post(`/marketing/publications/${stalePublication.body.id}/publish`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({})
+      .expect(409);
     expect(
       await prisma.auditLog.count({
         where: {
@@ -348,6 +488,44 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
       .set('Authorization', `Bearer ${salesToken}`)
       .send({ title: 'Forbidden' })
       .expect(403);
+  });
+
+  it('rejects unsafe or incomplete private creative file metadata', async () => {
+    const content = await createContent('Creative File Security');
+    contentIds.push(content.id);
+    await request(app.getHttpServer())
+      .patch(`/marketing/content/${content.id}/stage`)
+      .set('Authorization', `Bearer ${creatorToken}`)
+      .send({ stage: 'CREATING' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/marketing/content/${content.id}/versions`)
+      .set('Authorization', `Bearer ${creatorToken}`)
+      .send({
+        fileName: '../secret.png',
+        fileType: 'image/png',
+        fileSize: 100,
+        storageKey: 'creative/unsafe.png',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post(`/marketing/content/${content.id}/versions`)
+      .set('Authorization', `Bearer ${creatorToken}`)
+      .send({
+        fileName: 'unsafe.exe',
+        fileType: 'application/x-msdownload',
+        fileSize: 100,
+        storageKey: 'creative/unsafe.exe',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post(`/marketing/content/${content.id}/versions`)
+      .set('Authorization', `Bearer ${creatorToken}`)
+      .send({
+        fileName: 'incomplete.png',
+        storageKey: 'creative/incomplete.png',
+      })
+      .expect(400);
   });
 
   async function createDeal() {
@@ -421,9 +599,24 @@ describe('NEO FLOW and GREENLIGHT (e2e)', () => {
           OR: [
             { entityType: 'MarketingContent', entityId: { in: contentIds } },
             { entityType: 'MarketingDeal', entityId: { in: dealIds } },
+            {
+              entityType: 'MarketingCampaign',
+              entityId: { in: campaignIds },
+            },
+            {
+              entityType: 'MarketingPublication',
+              entityId: { in: publicationIds },
+            },
           ],
         },
       });
+      await prisma.marketingAttribution.deleteMany({
+        where: { id: { in: attributionIds } },
+      });
+      await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
+      await prisma.saleSubmission.deleteMany({ where: { id: { in: saleIds } } });
+      await prisma.lead.deleteMany({ where: { id: { in: leadIds } } });
+      await prisma.customer.deleteMany({ where: { id: { in: customerIds } } });
       await prisma.marketingContentComment.deleteMany({
         where: { contentId: { in: contentIds } },
       });

@@ -68,6 +68,7 @@ describe('Booking operations foundation (e2e)', () => {
       'booking.manage_notes',
       'booking.manage_tasks',
       'booking.status.manage',
+      'booking.operations.complete',
       'finance.view',
       'finance.edit',
     ];
@@ -151,6 +152,7 @@ describe('Booking operations foundation (e2e)', () => {
             firstName: 'Naveen',
             lastName: 'Operations',
             departmentId: operationsDepartment.id,
+            roles: { create: { roleId: opsRole.id } },
           },
         }),
       ]);
