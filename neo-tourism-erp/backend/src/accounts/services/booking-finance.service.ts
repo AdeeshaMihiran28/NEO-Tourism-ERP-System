@@ -22,16 +22,28 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BookingLifecycleService } from '../../bookings/services/booking-lifecycle.service';
 import type {
   AccountsQueueQueryDto,
+  AllocateAdvanceDto,
+  CreateAdvanceDto,
   CreateAdjustmentDto,
+  CreateCustomerInvoiceDto,
   CreateDiscrepancyDto,
   CreatePassengerPaymentDto,
   CreateSupplierPaymentDto,
+  CreateSupplierAdvanceDto,
+  CreateSupplierInvoiceDto,
   DiscrepancyQueryDto,
+  InvoiceListQueryDto,
   ResolveDiscrepancyDto,
+  ReverseAllocationDto,
   UpdatePassengerPaymentDto,
+  UpdateCustomerInvoiceDto,
   UpdateReconciliationDto,
   UpdateSupplierPaymentDto,
+  UpdateSupplierInvoiceDto,
 } from '../dto/accounts.dto';
+import { BankingService } from './banking.service';
+import { GeneralLedgerService } from './general-ledger.service';
+import { AccountingControlsService } from './accounting-controls.service';
 
 const moneySelect = {
   id: true,
@@ -47,6 +59,9 @@ export class BookingFinanceService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly lifecycle: BookingLifecycleService,
+    private readonly banking: BankingService,
+    private readonly ledger: GeneralLedgerService,
+    private readonly controls: AccountingControlsService,
   ) {}
 
   async queue(query: AccountsQueueQueryDto) {
@@ -151,7 +166,7 @@ export class BookingFinanceService {
     };
   }
 
-  async financialSummary(bookingId: string) {
+  async financialSummary(bookingId: string, persist = true) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -159,6 +174,54 @@ export class BookingFinanceService {
         passengerPayments: { select: { amount: true, status: true } },
         supplierPayments: { select: { amount: true, status: true } },
         adjustments: { select: { amount: true, type: true, approvedAt: true } },
+        customerInvoices: {
+          where: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
+          select: {
+            totalAmount: true,
+            payments: {
+              where: { status: { in: ['RECEIVED', 'VERIFIED'] } },
+              select: { amount: true },
+            },
+            advanceAllocations: {
+              where: { reversedAt: null },
+              select: { amount: true },
+            },
+          },
+        },
+        supplierInvoices: {
+          where: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
+          select: {
+            totalAmount: true,
+            payments: {
+              where: { status: { in: ['PAID', 'VERIFIED'] } },
+              select: { amount: true },
+            },
+            advanceAllocations: {
+              where: { reversedAt: null },
+              select: { amount: true },
+            },
+          },
+        },
+        customerAdvances: {
+          where: { cancelledAt: null },
+          select: {
+            amount: true,
+            allocations: {
+              where: { reversedAt: null },
+              select: { amount: true },
+            },
+          },
+        },
+        supplierAdvances: {
+          where: { cancelledAt: null },
+          select: {
+            amount: true,
+            allocations: {
+              where: { reversedAt: null },
+              select: { amount: true },
+            },
+          },
+        },
       },
     });
     if (!booking) throw new NotFoundException('Booking not found.');
@@ -179,15 +242,17 @@ export class BookingFinanceService {
     const discounts = this.total(
       approved.filter((a) => a.type === BookingAdjustmentType.DISCOUNT),
     );
+    const refunds = this.total(
+      approved.filter((a) => a.type === BookingAdjustmentType.REFUND),
+    );
     const adjustments = approved.reduce((sum, item) => {
       if (
         item.type === BookingAdjustmentType.FEE ||
-        item.type === BookingAdjustmentType.DISCOUNT
+        item.type === BookingAdjustmentType.DISCOUNT ||
+        item.type === BookingAdjustmentType.REFUND
       )
         return sum;
-      return item.type === BookingAdjustmentType.REFUND
-        ? sum.minus(item.amount.abs())
-        : sum.plus(item.amount);
+      return sum.plus(item.amount);
     }, zero);
     const passengerPaymentsReceived = this.total(
       booking.passengerPayments.filter(
@@ -206,46 +271,1233 @@ export class BookingFinanceService {
     const expectedRevenue = booking.sellingPrice
       .plus(fees)
       .minus(discounts)
+      .minus(refunds)
       .plus(adjustments);
     const expectedProfit = expectedRevenue.minus(supplierCost);
-    await this.prisma.bookingFinance.upsert({
-      where: { bookingId },
-      update: {
-        sellingPrice: booking.sellingPrice,
-        supplierCost,
-        fees,
-        discounts,
-        adjustments,
-        expectedRevenue,
-        expectedProfit,
-        currency: booking.currency.toUpperCase(),
-      },
-      create: {
-        bookingId,
-        sellingPrice: booking.sellingPrice,
-        supplierCost,
-        fees,
-        discounts,
-        adjustments,
-        expectedRevenue,
-        expectedProfit,
-        currency: booking.currency.toUpperCase(),
-      },
-    });
+    const grossMargin = expectedRevenue.isZero()
+      ? zero
+      : expectedProfit.div(expectedRevenue).mul(100).toDecimalPlaces(2);
+    const invoicedAmount = booking.customerInvoices.reduce(
+      (sum, invoice) => sum.plus(invoice.totalAmount),
+      zero,
+    );
+    const invoiceReceipts = booking.customerInvoices.flatMap(
+      (invoice) => invoice.payments,
+    );
+    const allocatedCustomerAdvances = this.total(
+      booking.customerInvoices.flatMap((invoice) => invoice.advanceAllocations),
+    );
+    const customerInvoicePaid = this.total(invoiceReceipts).plus(
+      allocatedCustomerAdvances,
+    );
+    const customerAdvances = this.total(booking.customerAdvances);
+    const supplierInvoiceAmount = booking.supplierInvoices.reduce(
+      (sum, invoice) => sum.plus(invoice.totalAmount),
+      zero,
+    );
+    const supplierInvoicePayments = booking.supplierInvoices.flatMap(
+      (invoice) => invoice.payments,
+    );
+    const allocatedSupplierAdvances = this.total(
+      booking.supplierInvoices.flatMap((invoice) => invoice.advanceAllocations),
+    );
+    const supplierInvoicePaid = this.total(supplierInvoicePayments).plus(
+      allocatedSupplierAdvances,
+    );
+    const supplierAdvances = this.total(booking.supplierAdvances);
+    if (persist)
+      await this.prisma.bookingFinance.upsert({
+        where: { bookingId },
+        update: {
+          sellingPrice: booking.sellingPrice,
+          supplierCost,
+          fees,
+          discounts,
+          adjustments: adjustments.minus(refunds),
+          expectedRevenue,
+          expectedProfit,
+          currency: booking.currency.toUpperCase(),
+        },
+        create: {
+          bookingId,
+          sellingPrice: booking.sellingPrice,
+          supplierCost,
+          fees,
+          discounts,
+          adjustments: adjustments.minus(refunds),
+          expectedRevenue,
+          expectedProfit,
+          currency: booking.currency.toUpperCase(),
+        },
+      });
     return {
       sellingPrice: booking.sellingPrice,
       supplierCost,
       fees,
       discounts,
+      refunds,
       adjustments,
       passengerPaymentsReceived,
       supplierPaymentsMade,
       expectedRevenue,
       expectedProfit,
-      passengerBalance: expectedRevenue.minus(passengerPaymentsReceived),
-      supplierBalance: supplierCost.minus(supplierPaymentsMade),
+      grossProfit: expectedProfit,
+      grossMargin,
+      invoicedAmount,
+      customerAdvances,
+      allocatedCustomerAdvances,
+      customerOutstanding: Prisma.Decimal.max(
+        invoicedAmount.minus(customerInvoicePaid),
+        zero,
+      ),
+      supplierInvoiceAmount,
+      supplierAdvances,
+      allocatedSupplierAdvances,
+      supplierOutstanding: Prisma.Decimal.max(
+        supplierInvoiceAmount.minus(supplierInvoicePaid),
+        zero,
+      ),
+      passengerBalance: expectedRevenue
+        .minus(passengerPaymentsReceived)
+        .minus(allocatedCustomerAdvances),
+      supplierBalance: supplierCost
+        .minus(supplierPaymentsMade)
+        .minus(allocatedSupplierAdvances),
       currency: booking.currency.toUpperCase(),
     };
+  }
+
+  async bookingProfitabilityReport() {
+    const bookings = await this.prisma.booking.findMany({
+      select: {
+        id: true,
+        folderNumber: true,
+        currency: true,
+        customer: { select: { id: true, firstName: true, lastName: true } },
+        reconciliation: { select: { status: true, reconciledAt: true } },
+      },
+      orderBy: { folderNumber: 'asc' },
+      take: 1000,
+    });
+    // ponytail: reuse the trusted booking calculation until report volume warrants batching.
+    return Promise.all(
+      bookings.map(async (booking) => ({
+        ...booking,
+        financials: await this.financialSummary(booking.id, false),
+      })),
+    );
+  }
+
+  async listCustomerInvoices(bookingId: string) {
+    await this.assertBooking(bookingId);
+    const rows = await this.prisma.customerInvoice.findMany({
+      where: { bookingId },
+      include: {
+        customer: { select: { id: true, firstName: true, lastName: true } },
+        booking: { select: { id: true, folderNumber: true } },
+        payments: { select: { amount: true, status: true } },
+        advanceAllocations: { select: { amount: true, reversedAt: true } },
+        document: { select: { id: true, fileName: true, category: true } },
+      },
+      orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((row) => this.customerInvoiceView(row));
+  }
+
+  async receivables(query: InvoiceListQueryDto) {
+    const where: Prisma.CustomerInvoiceWhereInput = {
+      status: { not: 'CANCELLED' },
+      ...(query.search && {
+        OR: [
+          { invoiceNumber: { contains: query.search, mode: 'insensitive' } },
+          {
+            booking: {
+              folderNumber: { contains: query.search, mode: 'insensitive' },
+            },
+          },
+          {
+            customer: {
+              OR: [
+                { firstName: { contains: query.search, mode: 'insensitive' } },
+                { lastName: { contains: query.search, mode: 'insensitive' } },
+              ],
+            },
+          },
+        ],
+      }),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            dueDate: {
+              ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+              ...(query.dateTo && { lte: new Date(query.dateTo) }),
+            },
+          }
+        : {}),
+    };
+    const [total, rows] = await Promise.all([
+      this.prisma.customerInvoice.count({ where }),
+      this.prisma.customerInvoice.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true } },
+          booking: { select: { id: true, folderNumber: true } },
+          payments: { select: { amount: true, status: true } },
+          advanceAllocations: { select: { amount: true, reversedAt: true } },
+        },
+        orderBy: [{ dueDate: 'asc' }, { invoiceDate: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return this.page(
+      rows.map((row) => this.customerInvoiceView(row)),
+      query,
+      total,
+    );
+  }
+
+  async createCustomerInvoice(
+    bookingId: string,
+    dto: CreateCustomerInvoiceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    await this.assertFinanceWritable(bookingId, user);
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { customerId: true, currency: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found.');
+    this.assertInvoiceCurrency(booking.currency, dto.currency);
+    if (dto.status && !['DRAFT', 'ISSUED'].includes(dto.status))
+      throw new BadRequestException(
+        'A new customer invoice must be DRAFT or ISSUED.',
+      );
+    await this.assertDocument(bookingId, dto.documentId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const amounts = await this.controls.invoiceAmounts(
+          tx,
+          dto.totalAmount,
+          dto.netAmount,
+          dto.taxCodeId,
+          'OUTPUT',
+          new Date(dto.invoiceDate),
+          dto.currency,
+        );
+        const value = await tx.customerInvoice.create({
+          data: {
+            bookingId,
+            customerId: booking.customerId,
+            invoiceNumber: dto.invoiceNumber.trim(),
+            invoiceDate: new Date(dto.invoiceDate),
+            dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+            currency: dto.currency.toUpperCase(),
+            netAmount: amounts.netAmount,
+            taxAmount: amounts.taxAmount,
+            totalAmount: amounts.totalAmount,
+            exchangeRate: amounts.exchangeRate,
+            baseCurrency: amounts.baseCurrency,
+            baseTotalAmount: amounts.baseAmount,
+            taxCodeId: amounts.taxCode?.id,
+            status: dto.status ?? 'ISSUED',
+            documentId: dto.documentId,
+            createdById: user.id,
+          },
+        });
+        if (value.status === 'ISSUED')
+          await this.ledger.postAutomatic(
+            tx,
+            {
+              sourceType: 'CUSTOMER_INVOICE',
+              sourceRecordId: value.id,
+              date: value.invoiceDate,
+              description: `Customer invoice ${value.invoiceNumber}`,
+              currency: value.currency,
+              bookingId: value.bookingId,
+              lines: [
+                {
+                  mapping: 'ACCOUNTS_RECEIVABLE',
+                  debit: value.totalAmount,
+                  bookingId: value.bookingId,
+                  customerId: value.customerId,
+                },
+                {
+                  mapping: 'SALES_REVENUE',
+                  credit: value.netAmount,
+                  bookingId: value.bookingId,
+                  customerId: value.customerId,
+                },
+                ...(amounts.taxCode && value.taxAmount.greaterThan(0)
+                  ? [
+                      {
+                        accountId: amounts.taxCode.glAccountId!,
+                        credit: value.taxAmount,
+                        bookingId: value.bookingId,
+                        customerId: value.customerId,
+                      },
+                    ]
+                  : []),
+              ],
+            },
+            user,
+            metadata,
+          );
+        await this.auditFinance(
+          tx,
+          user,
+          metadata,
+          'CustomerInvoice',
+          value.id,
+          'CUSTOMER_INVOICE_CREATED',
+          value,
+        );
+        return value;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      )
+        throw new ConflictException('Customer invoice number already exists.');
+      throw error;
+    }
+  }
+
+  async updateCustomerInvoice(
+    id: string,
+    dto: UpdateCustomerInvoiceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    const old = await this.prisma.customerInvoice.findUnique({
+      where: { id },
+      include: {
+        payments: true,
+        advanceAllocations: { where: { reversedAt: null } },
+      },
+    });
+    if (!old) throw new NotFoundException('Customer invoice not found.');
+    await this.ledger.assertSourceEditable(this.prisma, 'CUSTOMER_INVOICE', id);
+    await this.assertFinanceWritable(old.bookingId, user);
+    if (old.status === 'CANCELLED')
+      throw new ConflictException('Cancelled invoices cannot be edited.');
+    if (dto.status && !['DRAFT', 'ISSUED'].includes(dto.status))
+      throw new BadRequestException(
+        'Payment status is calculated from valid allocations.',
+      );
+    if (dto.currency) this.assertInvoiceCurrency(old.currency, dto.currency);
+    await this.assertDocument(old.bookingId, dto.documentId);
+    const applied = this.total(
+      old.payments.filter((payment) =>
+        ['RECEIVED', 'VERIFIED'].includes(payment.status),
+      ),
+    ).plus(this.total(old.advanceAllocations));
+    if (dto.status === 'DRAFT' && !applied.isZero())
+      throw new ConflictException(
+        'An invoice with applied payments cannot return to draft.',
+      );
+    if (
+      dto.totalAmount &&
+      new Prisma.Decimal(dto.totalAmount).lessThan(applied)
+    )
+      throw new ConflictException(
+        'Invoice total cannot be less than its applied payments.',
+      );
+    return this.prisma.$transaction(async (tx) => {
+      const invoiceDate = dto.invoiceDate
+        ? new Date(dto.invoiceDate)
+        : old.invoiceDate;
+      const currency = dto.currency ?? old.currency;
+      const amounts = await this.controls.invoiceAmounts(
+        tx,
+        dto.totalAmount ?? old.totalAmount.toString(),
+        dto.netAmount ?? old.netAmount.toString(),
+        dto.taxCodeId ?? old.taxCodeId ?? undefined,
+        'OUTPUT',
+        invoiceDate,
+        currency,
+      );
+      const value = await tx.customerInvoice.update({
+        where: { id },
+        data: {
+          status: dto.status,
+          documentId: dto.documentId,
+          ...(dto.invoiceNumber && { invoiceNumber: dto.invoiceNumber.trim() }),
+          ...(dto.invoiceDate && { invoiceDate: new Date(dto.invoiceDate) }),
+          ...(dto.dueDate && { dueDate: new Date(dto.dueDate) }),
+          ...(dto.currency && { currency: dto.currency.toUpperCase() }),
+          netAmount: amounts.netAmount,
+          taxAmount: amounts.taxAmount,
+          totalAmount: amounts.totalAmount,
+          exchangeRate: amounts.exchangeRate,
+          baseCurrency: amounts.baseCurrency,
+          baseTotalAmount: amounts.baseAmount,
+          taxCodeId: amounts.taxCode?.id,
+        },
+      });
+      if (value.status === 'ISSUED')
+        await this.ledger.postAutomatic(
+          tx,
+          {
+            sourceType: 'CUSTOMER_INVOICE',
+            sourceRecordId: value.id,
+            date: value.invoiceDate,
+            description: `Customer invoice ${value.invoiceNumber}`,
+            currency: value.currency,
+            bookingId: value.bookingId,
+            lines: [
+              {
+                mapping: 'ACCOUNTS_RECEIVABLE',
+                debit: value.totalAmount,
+                bookingId: value.bookingId,
+                customerId: value.customerId,
+              },
+              {
+                mapping: 'SALES_REVENUE',
+                credit: value.netAmount,
+                bookingId: value.bookingId,
+                customerId: value.customerId,
+              },
+              ...(amounts.taxCode && value.taxAmount.greaterThan(0)
+                ? [
+                    {
+                      accountId: amounts.taxCode.glAccountId!,
+                      credit: value.taxAmount,
+                      bookingId: value.bookingId,
+                      customerId: value.customerId,
+                    },
+                  ]
+                : []),
+            ],
+          },
+          user,
+          metadata,
+        );
+      await this.syncCustomerInvoiceStatus(tx, id);
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        'CustomerInvoice',
+        id,
+        'CUSTOMER_INVOICE_UPDATED',
+        value,
+      );
+      return value;
+    });
+  }
+
+  async listSupplierInvoices(bookingId: string) {
+    await this.assertBooking(bookingId);
+    const rows = await this.prisma.supplierInvoice.findMany({
+      where: { bookingId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        booking: { select: { id: true, folderNumber: true } },
+        payments: { select: { amount: true, status: true } },
+        advanceAllocations: { select: { amount: true, reversedAt: true } },
+        document: { select: { id: true, fileName: true, category: true } },
+      },
+      orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((row) => this.supplierInvoiceView(row));
+  }
+
+  async payables(query: InvoiceListQueryDto) {
+    const where: Prisma.SupplierInvoiceWhereInput = {
+      status: { not: 'CANCELLED' },
+      ...(query.search && {
+        OR: [
+          { invoiceNumber: { contains: query.search, mode: 'insensitive' } },
+          {
+            booking: {
+              folderNumber: { contains: query.search, mode: 'insensitive' },
+            },
+          },
+          {
+            supplier: { name: { contains: query.search, mode: 'insensitive' } },
+          },
+        ],
+      }),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            dueDate: {
+              ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+              ...(query.dateTo && { lte: new Date(query.dateTo) }),
+            },
+          }
+        : {}),
+    };
+    const [total, rows] = await Promise.all([
+      this.prisma.supplierInvoice.count({ where }),
+      this.prisma.supplierInvoice.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true } },
+          booking: { select: { id: true, folderNumber: true } },
+          payments: { select: { amount: true, status: true } },
+          advanceAllocations: { select: { amount: true, reversedAt: true } },
+        },
+        orderBy: [{ dueDate: 'asc' }, { invoiceDate: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return this.page(
+      rows.map((row) => this.supplierInvoiceView(row)),
+      query,
+      total,
+    );
+  }
+
+  async createSupplierInvoice(
+    bookingId: string,
+    dto: CreateSupplierInvoiceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    await this.assertFinanceWritable(bookingId, user);
+    const bookingSupplier = await this.prisma.bookingSupplier.findFirst({
+      where: { id: dto.bookingSupplierId, bookingId },
+      select: {
+        supplierId: true,
+        currency: true,
+        booking: { select: { currency: true } },
+      },
+    });
+    if (!bookingSupplier)
+      throw new BadRequestException(
+        'Supplier does not belong to this booking.',
+      );
+    this.assertInvoiceCurrency(
+      bookingSupplier.currency ?? bookingSupplier.booking.currency,
+      dto.currency,
+    );
+    if (dto.status && !['DRAFT', 'APPROVED'].includes(dto.status))
+      throw new BadRequestException(
+        'A new supplier invoice must be DRAFT or APPROVED.',
+      );
+    await this.assertDocument(bookingId, dto.documentId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const amounts = await this.controls.invoiceAmounts(
+          tx,
+          dto.totalAmount,
+          dto.netAmount,
+          dto.taxCodeId,
+          'INPUT',
+          new Date(dto.invoiceDate),
+          dto.currency,
+        );
+        const value = await tx.supplierInvoice.create({
+          data: {
+            bookingId,
+            bookingSupplierId: dto.bookingSupplierId,
+            supplierId: bookingSupplier.supplierId,
+            invoiceNumber: dto.invoiceNumber.trim(),
+            invoiceDate: new Date(dto.invoiceDate),
+            dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+            currency: dto.currency.toUpperCase(),
+            netAmount: amounts.netAmount,
+            taxAmount: amounts.taxAmount,
+            totalAmount: amounts.totalAmount,
+            exchangeRate: amounts.exchangeRate,
+            baseCurrency: amounts.baseCurrency,
+            baseTotalAmount: amounts.baseAmount,
+            taxCodeId: amounts.taxCode?.id,
+            status: dto.status ?? 'APPROVED',
+            documentId: dto.documentId,
+            createdById: user.id,
+          },
+        });
+        if (value.status === 'APPROVED')
+          await this.ledger.postAutomatic(
+            tx,
+            {
+              sourceType: 'SUPPLIER_INVOICE',
+              sourceRecordId: value.id,
+              date: value.invoiceDate,
+              description: `Supplier invoice ${value.invoiceNumber}`,
+              currency: value.currency,
+              bookingId: value.bookingId,
+              lines: [
+                {
+                  mapping: 'DIRECT_BOOKING_COST',
+                  debit: amounts.taxCode?.isRecoverable
+                    ? value.netAmount
+                    : value.totalAmount,
+                  bookingId: value.bookingId,
+                  supplierId: value.supplierId,
+                },
+                ...(amounts.taxCode?.isRecoverable &&
+                value.taxAmount.greaterThan(0)
+                  ? [
+                      {
+                        accountId: amounts.taxCode.glAccountId!,
+                        debit: value.taxAmount,
+                        bookingId: value.bookingId,
+                        supplierId: value.supplierId,
+                      },
+                    ]
+                  : []),
+                {
+                  mapping: 'ACCOUNTS_PAYABLE',
+                  credit: value.totalAmount,
+                  bookingId: value.bookingId,
+                  supplierId: value.supplierId,
+                },
+              ],
+            },
+            user,
+            metadata,
+          );
+        await this.auditFinance(
+          tx,
+          user,
+          metadata,
+          'SupplierInvoice',
+          value.id,
+          'SUPPLIER_INVOICE_CREATED',
+          value,
+        );
+        return value;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      )
+        throw new ConflictException(
+          'This supplier invoice number already exists.',
+        );
+      throw error;
+    }
+  }
+
+  async updateSupplierInvoice(
+    id: string,
+    dto: UpdateSupplierInvoiceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    const old = await this.prisma.supplierInvoice.findUnique({
+      where: { id },
+      include: {
+        payments: true,
+        advanceAllocations: { where: { reversedAt: null } },
+      },
+    });
+    if (!old) throw new NotFoundException('Supplier invoice not found.');
+    await this.ledger.assertSourceEditable(this.prisma, 'SUPPLIER_INVOICE', id);
+    await this.assertFinanceWritable(old.bookingId, user);
+    if (old.status === 'CANCELLED')
+      throw new ConflictException('Cancelled invoices cannot be edited.');
+    if (dto.status && !['DRAFT', 'APPROVED'].includes(dto.status))
+      throw new BadRequestException(
+        'Payment status is calculated from valid allocations.',
+      );
+    if (dto.currency) this.assertInvoiceCurrency(old.currency, dto.currency);
+    await this.assertDocument(old.bookingId, dto.documentId);
+    const applied = this.total(
+      old.payments.filter((payment) =>
+        ['PAID', 'VERIFIED'].includes(payment.status),
+      ),
+    ).plus(this.total(old.advanceAllocations));
+    if (dto.status === 'DRAFT' && !applied.isZero())
+      throw new ConflictException(
+        'An invoice with applied payments cannot return to draft.',
+      );
+    if (
+      dto.totalAmount &&
+      new Prisma.Decimal(dto.totalAmount).lessThan(applied)
+    )
+      throw new ConflictException(
+        'Invoice total cannot be less than its applied payments.',
+      );
+    return this.prisma.$transaction(async (tx) => {
+      const invoiceDate = dto.invoiceDate
+        ? new Date(dto.invoiceDate)
+        : old.invoiceDate;
+      const currency = dto.currency ?? old.currency;
+      const amounts = await this.controls.invoiceAmounts(
+        tx,
+        dto.totalAmount ?? old.totalAmount.toString(),
+        dto.netAmount ?? old.netAmount.toString(),
+        dto.taxCodeId ?? old.taxCodeId ?? undefined,
+        'INPUT',
+        invoiceDate,
+        currency,
+      );
+      const value = await tx.supplierInvoice.update({
+        where: { id },
+        data: {
+          status: dto.status,
+          documentId: dto.documentId,
+          ...(dto.invoiceNumber && { invoiceNumber: dto.invoiceNumber.trim() }),
+          ...(dto.invoiceDate && { invoiceDate: new Date(dto.invoiceDate) }),
+          ...(dto.dueDate && { dueDate: new Date(dto.dueDate) }),
+          ...(dto.currency && { currency: dto.currency.toUpperCase() }),
+          netAmount: amounts.netAmount,
+          taxAmount: amounts.taxAmount,
+          totalAmount: amounts.totalAmount,
+          exchangeRate: amounts.exchangeRate,
+          baseCurrency: amounts.baseCurrency,
+          baseTotalAmount: amounts.baseAmount,
+          taxCodeId: amounts.taxCode?.id,
+        },
+      });
+      if (value.status === 'APPROVED')
+        await this.ledger.postAutomatic(
+          tx,
+          {
+            sourceType: 'SUPPLIER_INVOICE',
+            sourceRecordId: value.id,
+            date: value.invoiceDate,
+            description: `Supplier invoice ${value.invoiceNumber}`,
+            currency: value.currency,
+            bookingId: value.bookingId,
+            lines: [
+              {
+                mapping: 'DIRECT_BOOKING_COST',
+                debit: amounts.taxCode?.isRecoverable
+                  ? value.netAmount
+                  : value.totalAmount,
+                bookingId: value.bookingId,
+                supplierId: value.supplierId,
+              },
+              ...(amounts.taxCode?.isRecoverable &&
+              value.taxAmount.greaterThan(0)
+                ? [
+                    {
+                      accountId: amounts.taxCode.glAccountId!,
+                      debit: value.taxAmount,
+                      bookingId: value.bookingId,
+                      supplierId: value.supplierId,
+                    },
+                  ]
+                : []),
+              {
+                mapping: 'ACCOUNTS_PAYABLE',
+                credit: value.totalAmount,
+                bookingId: value.bookingId,
+                supplierId: value.supplierId,
+              },
+            ],
+          },
+          user,
+          metadata,
+        );
+      await this.syncSupplierInvoiceStatus(tx, id);
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        'SupplierInvoice',
+        id,
+        'SUPPLIER_INVOICE_UPDATED',
+        value,
+      );
+      return value;
+    });
+  }
+
+  async cancelInvoice(
+    kind: 'customer' | 'supplier',
+    id: string,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    const invoice =
+      kind === 'customer'
+        ? await this.prisma.customerInvoice.findUnique({
+            where: { id },
+            include: { payments: true, advanceAllocations: true },
+          })
+        : await this.prisma.supplierInvoice.findUnique({
+            where: { id },
+            include: { payments: true, advanceAllocations: true },
+          });
+    if (!invoice) throw new NotFoundException('Invoice not found.');
+    await this.assertFinanceWritable(invoice.bookingId, user);
+    if (invoice.status === 'CANCELLED')
+      throw new ConflictException('Invoice is already cancelled.');
+    const validPayments = invoice.payments.some((payment) =>
+      ['RECEIVED', 'PAID', 'VERIFIED'].includes(payment.status),
+    );
+    const activeAllocations = invoice.advanceAllocations.some(
+      (allocation) => allocation.reversedAt === null,
+    );
+    if (validPayments || activeAllocations)
+      throw new ConflictException(
+        'Reverse payments and advance allocations before cancelling this invoice.',
+      );
+    return this.prisma.$transaction(async (tx) => {
+      await this.ledger.reverseSource(
+        tx,
+        kind === 'customer' ? 'CUSTOMER_INVOICE' : 'SUPPLIER_INVOICE',
+        id,
+        'Invoice cancelled',
+        user,
+        metadata,
+      );
+      const value =
+        kind === 'customer'
+          ? await tx.customerInvoice.update({
+              where: { id },
+              data: { status: 'CANCELLED' },
+            })
+          : await tx.supplierInvoice.update({
+              where: { id },
+              data: { status: 'CANCELLED' },
+            });
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        kind === 'customer' ? 'CustomerInvoice' : 'SupplierInvoice',
+        id,
+        kind === 'customer'
+          ? 'CUSTOMER_INVOICE_CANCELLED'
+          : 'SUPPLIER_INVOICE_CANCELLED',
+        value,
+      );
+      return value;
+    });
+  }
+
+  async listCustomerAdvances(bookingId: string) {
+    await this.assertBooking(bookingId);
+    const rows = await this.prisma.customerAdvance.findMany({
+      where: { bookingId },
+      include: {
+        allocations: {
+          include: { invoice: { select: { invoiceNumber: true } } },
+        },
+        recordedBy: { select: moneySelect },
+      },
+      orderBy: { paymentDate: 'desc' },
+    });
+    return rows.map((row) => this.advanceView(row));
+  }
+
+  async createCustomerAdvance(
+    bookingId: string,
+    dto: CreateAdvanceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    await this.assertFinanceWritable(bookingId, user);
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { customerId: true, currency: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found.');
+    this.assertInvoiceCurrency(booking.currency, dto.currency);
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertAdvanceBankAccount(
+        tx,
+        dto.companyBankAccountId,
+        dto.currency,
+      );
+      const valuation = await this.controls.valuation(
+        tx,
+        dto.amount,
+        dto.currency,
+        new Date(dto.paymentDate),
+      );
+      const value = await tx.customerAdvance.create({
+        data: {
+          customerId: booking.customerId,
+          bookingId,
+          amount: new Prisma.Decimal(dto.amount),
+          currency: dto.currency.toUpperCase(),
+          exchangeRate: valuation.exchangeRate,
+          baseCurrency: valuation.baseCurrency,
+          baseAmount: valuation.baseAmount,
+          paymentMethod: dto.paymentMethod,
+          paymentReference: dto.paymentReference,
+          paymentDate: new Date(dto.paymentDate),
+          notes: dto.notes,
+          recordedById: user.id,
+          companyBankAccountId: dto.companyBankAccountId,
+        },
+      });
+      await this.ledger.postAutomatic(
+        tx,
+        {
+          sourceType: 'CUSTOMER_ADVANCE',
+          sourceRecordId: value.id,
+          date: value.paymentDate,
+          description: 'Customer advance received',
+          currency: value.currency,
+          bookingId: value.bookingId ?? undefined,
+          lines: [
+            {
+              ...(value.companyBankAccountId
+                ? { bankAccountId: value.companyBankAccountId }
+                : { mapping: 'PAYMENT_CLEARING' as const }),
+              debit: value.amount,
+              bookingId: value.bookingId ?? undefined,
+              customerId: value.customerId,
+            },
+            {
+              mapping: 'CUSTOMER_ADVANCES',
+              credit: value.amount,
+              bookingId: value.bookingId ?? undefined,
+              customerId: value.customerId,
+            },
+          ],
+        },
+        user,
+        metadata,
+      );
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        'CustomerAdvance',
+        value.id,
+        'CUSTOMER_ADVANCE_RECORDED',
+        value,
+      );
+      return value;
+    });
+  }
+
+  async listSupplierAdvances(bookingId: string) {
+    await this.assertBooking(bookingId);
+    const rows = await this.prisma.supplierAdvance.findMany({
+      where: { bookingId },
+      include: {
+        supplier: { select: { id: true, name: true } },
+        allocations: {
+          include: { invoice: { select: { invoiceNumber: true } } },
+        },
+        recordedBy: { select: moneySelect },
+      },
+      orderBy: { paymentDate: 'desc' },
+    });
+    return rows.map((row) => this.advanceView(row));
+  }
+
+  async createSupplierAdvance(
+    bookingId: string,
+    dto: CreateSupplierAdvanceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    await this.assertFinanceWritable(bookingId, user);
+    const bookingSupplier = await this.prisma.bookingSupplier.findFirst({
+      where: { id: dto.bookingSupplierId, bookingId },
+      select: {
+        supplierId: true,
+        currency: true,
+        booking: { select: { currency: true } },
+      },
+    });
+    if (!bookingSupplier)
+      throw new BadRequestException(
+        'Supplier does not belong to this booking.',
+      );
+    this.assertInvoiceCurrency(
+      bookingSupplier.currency ?? bookingSupplier.booking.currency,
+      dto.currency,
+    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertAdvanceBankAccount(
+        tx,
+        dto.companyBankAccountId,
+        dto.currency,
+      );
+      const valuation = await this.controls.valuation(
+        tx,
+        dto.amount,
+        dto.currency,
+        new Date(dto.paymentDate),
+      );
+      const value = await tx.supplierAdvance.create({
+        data: {
+          supplierId: bookingSupplier.supplierId,
+          bookingId,
+          amount: new Prisma.Decimal(dto.amount),
+          currency: dto.currency.toUpperCase(),
+          exchangeRate: valuation.exchangeRate,
+          baseCurrency: valuation.baseCurrency,
+          baseAmount: valuation.baseAmount,
+          paymentMethod: dto.paymentMethod,
+          paymentReference: dto.paymentReference,
+          paymentDate: new Date(dto.paymentDate),
+          notes: dto.notes,
+          recordedById: user.id,
+          companyBankAccountId: dto.companyBankAccountId,
+        },
+      });
+      await this.ledger.postAutomatic(
+        tx,
+        {
+          sourceType: 'SUPPLIER_ADVANCE',
+          sourceRecordId: value.id,
+          date: value.paymentDate,
+          description: 'Supplier advance paid',
+          currency: value.currency,
+          bookingId: value.bookingId ?? undefined,
+          lines: [
+            {
+              mapping: 'SUPPLIER_ADVANCES',
+              debit: value.amount,
+              bookingId: value.bookingId ?? undefined,
+              supplierId: value.supplierId,
+            },
+            {
+              ...(value.companyBankAccountId
+                ? { bankAccountId: value.companyBankAccountId }
+                : { mapping: 'PAYMENT_CLEARING' as const }),
+              credit: value.amount,
+              bookingId: value.bookingId ?? undefined,
+              supplierId: value.supplierId,
+            },
+          ],
+        },
+        user,
+        metadata,
+      );
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        'SupplierAdvance',
+        value.id,
+        'SUPPLIER_ADVANCE_RECORDED',
+        value,
+      );
+      return value;
+    });
+  }
+
+  async allocateAdvance(
+    kind: 'customer' | 'supplier',
+    id: string,
+    dto: AllocateAdvanceDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    const amount = new Prisma.Decimal(dto.amount);
+    return this.prisma.$transaction(
+      async (tx) => {
+        if (kind === 'customer') {
+          const advance = await tx.customerAdvance.findUnique({
+            where: { id },
+            include: { allocations: { where: { reversedAt: null } } },
+          });
+          const invoice = await tx.customerInvoice.findUnique({
+            where: { id: dto.invoiceId },
+            include: {
+              payments: true,
+              advanceAllocations: { where: { reversedAt: null } },
+            },
+          });
+          if (!advance || !invoice)
+            throw new NotFoundException('Advance or invoice not found.');
+          await this.assertFinanceWritable(invoice.bookingId, user, tx);
+          this.assertAllocation(
+            advance,
+            invoice,
+            amount,
+            advance.allocations,
+            invoice.payments,
+            invoice.advanceAllocations,
+            ['RECEIVED', 'VERIFIED'],
+          );
+          const value = await tx.customerAdvanceAllocation.create({
+            data: {
+              advanceId: id,
+              invoiceId: dto.invoiceId,
+              amount,
+              allocatedById: user.id,
+            },
+          });
+          await this.ledger.postAutomatic(
+            tx,
+            {
+              sourceType: 'CUSTOMER_ADVANCE_ALLOCATION',
+              sourceRecordId: value.id,
+              date: value.allocatedAt,
+              description: 'Customer advance allocated to invoice',
+              currency: advance.currency,
+              bookingId: invoice.bookingId,
+              lines: [
+                {
+                  mapping: 'CUSTOMER_ADVANCES',
+                  debit: value.amount,
+                  bookingId: invoice.bookingId,
+                  customerId: invoice.customerId,
+                },
+                {
+                  mapping: 'ACCOUNTS_RECEIVABLE',
+                  credit: value.amount,
+                  bookingId: invoice.bookingId,
+                  customerId: invoice.customerId,
+                },
+              ],
+            },
+            user,
+            metadata,
+          );
+          await this.syncCustomerInvoiceStatus(tx, invoice.id);
+          await this.auditFinance(
+            tx,
+            user,
+            metadata,
+            'CustomerAdvanceAllocation',
+            value.id,
+            'CUSTOMER_ADVANCE_ALLOCATED',
+            value,
+          );
+          return value;
+        }
+        const advance = await tx.supplierAdvance.findUnique({
+          where: { id },
+          include: { allocations: { where: { reversedAt: null } } },
+        });
+        const invoice = await tx.supplierInvoice.findUnique({
+          where: { id: dto.invoiceId },
+          include: {
+            payments: true,
+            advanceAllocations: { where: { reversedAt: null } },
+          },
+        });
+        if (!advance || !invoice)
+          throw new NotFoundException('Advance or invoice not found.');
+        await this.assertFinanceWritable(invoice.bookingId, user, tx);
+        this.assertAllocation(
+          advance,
+          invoice,
+          amount,
+          advance.allocations,
+          invoice.payments,
+          invoice.advanceAllocations,
+          ['PAID', 'VERIFIED'],
+        );
+        const value = await tx.supplierAdvanceAllocation.create({
+          data: {
+            advanceId: id,
+            invoiceId: dto.invoiceId,
+            amount,
+            allocatedById: user.id,
+          },
+        });
+        await this.ledger.postAutomatic(
+          tx,
+          {
+            sourceType: 'SUPPLIER_ADVANCE_ALLOCATION',
+            sourceRecordId: value.id,
+            date: value.allocatedAt,
+            description: 'Supplier advance allocated to invoice',
+            currency: advance.currency,
+            bookingId: invoice.bookingId,
+            lines: [
+              {
+                mapping: 'ACCOUNTS_PAYABLE',
+                debit: value.amount,
+                bookingId: invoice.bookingId,
+                supplierId: invoice.supplierId,
+              },
+              {
+                mapping: 'SUPPLIER_ADVANCES',
+                credit: value.amount,
+                bookingId: invoice.bookingId,
+                supplierId: invoice.supplierId,
+              },
+            ],
+          },
+          user,
+          metadata,
+        );
+        await this.syncSupplierInvoiceStatus(tx, invoice.id);
+        await this.auditFinance(
+          tx,
+          user,
+          metadata,
+          'SupplierAdvanceAllocation',
+          value.id,
+          'SUPPLIER_ADVANCE_ALLOCATED',
+          value,
+        );
+        return value;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  async reverseAllocation(
+    kind: 'customer' | 'supplier',
+    id: string,
+    dto: ReverseAllocationDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const old =
+        kind === 'customer'
+          ? await tx.customerAdvanceAllocation.findUnique({
+              where: { id },
+              include: { invoice: true },
+            })
+          : await tx.supplierAdvanceAllocation.findUnique({
+              where: { id },
+              include: { invoice: true },
+            });
+      if (!old) throw new NotFoundException('Advance allocation not found.');
+      if (old.reversedAt)
+        throw new ConflictException('Advance allocation is already reversed.');
+      await this.assertFinanceWritable(old.invoice.bookingId, user, tx);
+      const value =
+        kind === 'customer'
+          ? await tx.customerAdvanceAllocation.update({
+              where: { id },
+              data: {
+                reversedAt: new Date(),
+                reversedById: user.id,
+                reversalReason: dto.reason,
+              },
+            })
+          : await tx.supplierAdvanceAllocation.update({
+              where: { id },
+              data: {
+                reversedAt: new Date(),
+                reversedById: user.id,
+                reversalReason: dto.reason,
+              },
+            });
+      await this.ledger.reverseSource(
+        tx,
+        kind === 'customer'
+          ? 'CUSTOMER_ADVANCE_ALLOCATION'
+          : 'SUPPLIER_ADVANCE_ALLOCATION',
+        id,
+        dto.reason,
+        user,
+        metadata,
+      );
+      if (kind === 'customer')
+        await this.syncCustomerInvoiceStatus(tx, old.invoiceId);
+      else await this.syncSupplierInvoiceStatus(tx, old.invoiceId);
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        kind === 'customer'
+          ? 'CustomerAdvanceAllocation'
+          : 'SupplierAdvanceAllocation',
+        id,
+        kind === 'customer'
+          ? 'CUSTOMER_ADVANCE_ALLOCATION_REVERSED'
+          : 'SUPPLIER_ADVANCE_ALLOCATION_REVERSED',
+        value,
+      );
+      return value;
+    });
   }
 
   async start(
@@ -425,8 +1677,11 @@ export class BookingFinanceService {
       include: {
         recordedBy: { select: moneySelect },
         verifiedBy: { select: moneySelect },
+        customerInvoice: { select: { id: true, invoiceNumber: true } },
+        bankTransaction: { include: { companyBankAccount: true } },
       },
       orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
+      take: 500,
     });
   }
 
@@ -439,33 +1694,69 @@ export class BookingFinanceService {
     await this.assertFinanceWritable(bookingId, user);
     await this.assertBooking(bookingId);
     this.assertEditablePaymentStatus(dto.status);
-    return this.prisma.$transaction(async (tx) => {
-      const value = await tx.passengerPayment.create({
-        data: {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.assertCustomerPayment(
+          tx,
           bookingId,
-          amount: new Prisma.Decimal(dto.amount),
-          currency: dto.currency.toUpperCase(),
-          paymentMethod: dto.paymentMethod,
-          paymentReference: dto.paymentReference,
-          paymentDate: new Date(dto.paymentDate),
-          status: dto.status ?? 'RECEIVED',
-          recordedById: user.id,
-          notes: dto.notes,
-        },
-      });
-      await this.audit.log(
-        {
-          actorUserId: user.id,
-          entityType: 'PassengerPayment',
-          entityId: value.id,
-          action: 'PASSENGER_PAYMENT_CREATED',
-          newValues: this.paymentAudit(value),
-          requestMetadata: metadata,
-        },
-        tx,
-      );
-      return value;
-    });
+          dto.customerInvoiceId,
+          new Prisma.Decimal(dto.amount),
+          dto.currency,
+        );
+        const valuation = await this.controls.valuation(
+          tx,
+          dto.amount,
+          dto.currency,
+          new Date(dto.paymentDate),
+        );
+        const value = await tx.passengerPayment.create({
+          data: {
+            bookingId,
+            amount: new Prisma.Decimal(dto.amount),
+            currency: dto.currency.toUpperCase(),
+            exchangeRate: valuation.exchangeRate,
+            baseCurrency: valuation.baseCurrency,
+            baseAmount: valuation.baseAmount,
+            paymentMethod: dto.paymentMethod,
+            paymentReference: dto.paymentReference,
+            paymentDate: new Date(dto.paymentDate),
+            status: dto.status ?? 'RECEIVED',
+            recordedById: user.id,
+            notes: dto.notes,
+            customerInvoiceId: dto.customerInvoiceId,
+          },
+        });
+        if (value.customerInvoiceId)
+          await this.syncCustomerInvoiceStatus(tx, value.customerInvoiceId);
+        await this.banking.linkCustomerReceipt(
+          tx,
+          value,
+          dto.companyBankAccountId,
+          user,
+          metadata,
+        );
+        await this.postPaymentJournal(
+          tx,
+          'passenger',
+          value.id,
+          user,
+          metadata,
+        );
+        await this.audit.log(
+          {
+            actorUserId: user.id,
+            entityType: 'PassengerPayment',
+            entityId: value.id,
+            action: 'PASSENGER_PAYMENT_CREATED',
+            newValues: this.paymentAudit(value),
+            requestMetadata: metadata,
+          },
+          tx,
+        );
+        return value;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async updatePassengerPayment(
@@ -483,6 +1774,14 @@ export class BookingFinanceService {
     if (old.status === 'VERIFIED')
       throw new ConflictException('Verified payments cannot be edited.');
     return this.prisma.$transaction(async (tx) => {
+      await this.ledger.assertSourceEditable(tx, 'CUSTOMER_RECEIPT', id);
+      await this.banking.assertSourcePaymentEditable(tx, 'customer', id);
+      const valuation = await this.controls.valuation(
+        tx,
+        dto.amount ?? old.amount,
+        dto.currency ?? old.currency,
+        dto.paymentDate ? new Date(dto.paymentDate) : old.paymentDate,
+      );
       const value = await tx.passengerPayment.update({
         where: { id },
         data: {
@@ -490,8 +1789,27 @@ export class BookingFinanceService {
           ...(dto.amount && { amount: new Prisma.Decimal(dto.amount) }),
           ...(dto.currency && { currency: dto.currency.toUpperCase() }),
           ...(dto.paymentDate && { paymentDate: new Date(dto.paymentDate) }),
+          exchangeRate: valuation.exchangeRate,
+          baseCurrency: valuation.baseCurrency,
+          baseAmount: valuation.baseAmount,
         },
       });
+      await this.assertCustomerPayment(
+        tx,
+        old.bookingId,
+        value.customerInvoiceId ?? undefined,
+        value.amount,
+        value.currency,
+        value.id,
+      );
+      if (old.customerInvoiceId)
+        await this.syncCustomerInvoiceStatus(tx, old.customerInvoiceId);
+      if (
+        value.customerInvoiceId &&
+        value.customerInvoiceId !== old.customerInvoiceId
+      )
+        await this.syncCustomerInvoiceStatus(tx, value.customerInvoiceId);
+      await this.postPaymentJournal(tx, 'passenger', value.id, user, metadata);
       await this.audit.log(
         {
           actorUserId: user.id,
@@ -523,8 +1841,11 @@ export class BookingFinanceService {
         bookingSupplier: { include: { supplier: true } },
         recordedBy: { select: moneySelect },
         verifiedBy: { select: moneySelect },
+        supplierInvoice: { select: { id: true, invoiceNumber: true } },
+        bankTransaction: { include: { companyBankAccount: true } },
       },
       orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
+      take: 500,
     });
   }
 
@@ -537,33 +1858,65 @@ export class BookingFinanceService {
     await this.assertFinanceWritable(bookingId, user);
     await this.assertSupplier(bookingId, dto.bookingSupplierId);
     this.assertEditablePaymentStatus(dto.status);
-    return this.prisma.$transaction(async (tx) => {
-      const value = await tx.supplierPayment.create({
-        data: {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.assertSupplierPayment(
+          tx,
           bookingId,
-          bookingSupplierId: dto.bookingSupplierId,
-          amount: new Prisma.Decimal(dto.amount),
-          currency: dto.currency.toUpperCase(),
-          paymentReference: dto.paymentReference,
-          paymentDate: new Date(dto.paymentDate),
-          status: dto.status ?? 'PAID',
-          recordedById: user.id,
-          notes: dto.notes,
-        },
-      });
-      await this.audit.log(
-        {
-          actorUserId: user.id,
-          entityType: 'SupplierPayment',
-          entityId: value.id,
-          action: 'SUPPLIER_PAYMENT_CREATED',
-          newValues: this.paymentAudit(value),
-          requestMetadata: metadata,
-        },
-        tx,
-      );
-      return value;
-    });
+          dto.bookingSupplierId,
+          dto.supplierInvoiceId,
+          new Prisma.Decimal(dto.amount),
+          dto.currency,
+        );
+        const valuation = await this.controls.valuation(
+          tx,
+          dto.amount,
+          dto.currency,
+          new Date(dto.paymentDate),
+        );
+        const value = await tx.supplierPayment.create({
+          data: {
+            bookingId,
+            bookingSupplierId: dto.bookingSupplierId,
+            amount: new Prisma.Decimal(dto.amount),
+            currency: dto.currency.toUpperCase(),
+            exchangeRate: valuation.exchangeRate,
+            baseCurrency: valuation.baseCurrency,
+            baseAmount: valuation.baseAmount,
+            paymentReference: dto.paymentReference,
+            paymentMethod: dto.paymentMethod ?? 'OTHER',
+            paymentDate: new Date(dto.paymentDate),
+            status: dto.status ?? 'PAID',
+            recordedById: user.id,
+            notes: dto.notes,
+            supplierInvoiceId: dto.supplierInvoiceId,
+          },
+        });
+        if (value.supplierInvoiceId)
+          await this.syncSupplierInvoiceStatus(tx, value.supplierInvoiceId);
+        await this.banking.linkSupplierPayment(
+          tx,
+          value,
+          dto.companyBankAccountId,
+          user,
+          metadata,
+        );
+        await this.postPaymentJournal(tx, 'supplier', value.id, user, metadata);
+        await this.audit.log(
+          {
+            actorUserId: user.id,
+            entityType: 'SupplierPayment',
+            entityId: value.id,
+            action: 'SUPPLIER_PAYMENT_CREATED',
+            newValues: this.paymentAudit(value),
+            requestMetadata: metadata,
+          },
+          tx,
+        );
+        return value;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async updateSupplierPayment(
@@ -581,6 +1934,14 @@ export class BookingFinanceService {
     if (dto.bookingSupplierId)
       await this.assertSupplier(old.bookingId, dto.bookingSupplierId);
     return this.prisma.$transaction(async (tx) => {
+      await this.ledger.assertSourceEditable(tx, 'SUPPLIER_PAYMENT', id);
+      await this.banking.assertSourcePaymentEditable(tx, 'supplier', id);
+      const valuation = await this.controls.valuation(
+        tx,
+        dto.amount ?? old.amount,
+        dto.currency ?? old.currency,
+        dto.paymentDate ? new Date(dto.paymentDate) : old.paymentDate,
+      );
       const value = await tx.supplierPayment.update({
         where: { id },
         data: {
@@ -588,8 +1949,28 @@ export class BookingFinanceService {
           ...(dto.amount && { amount: new Prisma.Decimal(dto.amount) }),
           ...(dto.currency && { currency: dto.currency.toUpperCase() }),
           ...(dto.paymentDate && { paymentDate: new Date(dto.paymentDate) }),
+          exchangeRate: valuation.exchangeRate,
+          baseCurrency: valuation.baseCurrency,
+          baseAmount: valuation.baseAmount,
         },
       });
+      await this.assertSupplierPayment(
+        tx,
+        old.bookingId,
+        value.bookingSupplierId,
+        value.supplierInvoiceId ?? undefined,
+        value.amount,
+        value.currency,
+        value.id,
+      );
+      if (old.supplierInvoiceId)
+        await this.syncSupplierInvoiceStatus(tx, old.supplierInvoiceId);
+      if (
+        value.supplierInvoiceId &&
+        value.supplierInvoiceId !== old.supplierInvoiceId
+      )
+        await this.syncSupplierInvoiceStatus(tx, value.supplierInvoiceId);
+      await this.postPaymentJournal(tx, 'supplier', value.id, user, metadata);
       await this.audit.log(
         {
           actorUserId: user.id,
@@ -614,6 +1995,89 @@ export class BookingFinanceService {
     return this.verifyPayment('supplier', id, user, metadata);
   }
 
+  async reversePayment(
+    kind: 'customer' | 'supplier',
+    id: string,
+    dto: ReverseAllocationDto,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      if (kind === 'customer') {
+        const old = await tx.passengerPayment.findUnique({ where: { id } });
+        if (!old) throw new NotFoundException('Passenger payment not found.');
+        await this.assertFinanceWritable(old.bookingId, user, tx);
+        if (['REFUNDED', 'REJECTED'].includes(old.status))
+          throw new ConflictException('Payment is already reversed.');
+        await this.banking.reverseSourcePayment(tx, kind, id);
+        await this.ledger.reverseSource(
+          tx,
+          'CUSTOMER_RECEIPT',
+          id,
+          dto.reason,
+          user,
+          metadata,
+        );
+        const value = await tx.passengerPayment.update({
+          where: { id },
+          data: {
+            status: 'REFUNDED',
+            notes: [old.notes, `Reversal: ${dto.reason}`]
+              .filter(Boolean)
+              .join('\n'),
+          },
+        });
+        if (old.customerInvoiceId)
+          await this.syncCustomerInvoiceStatus(tx, old.customerInvoiceId);
+        await this.auditFinance(
+          tx,
+          user,
+          metadata,
+          'PassengerPayment',
+          id,
+          'CUSTOMER_PAYMENT_REVERSED',
+          value,
+        );
+        return value;
+      }
+      const old = await tx.supplierPayment.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('Supplier payment not found.');
+      await this.assertFinanceWritable(old.bookingId, user, tx);
+      if (['CANCELLED', 'DISPUTED'].includes(old.status))
+        throw new ConflictException('Payment is already reversed.');
+      await this.banking.reverseSourcePayment(tx, kind, id);
+      await this.ledger.reverseSource(
+        tx,
+        'SUPPLIER_PAYMENT',
+        id,
+        dto.reason,
+        user,
+        metadata,
+      );
+      const value = await tx.supplierPayment.update({
+        where: { id },
+        data: {
+          status: 'CANCELLED',
+          notes: [old.notes, `Reversal: ${dto.reason}`]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      });
+      if (old.supplierInvoiceId)
+        await this.syncSupplierInvoiceStatus(tx, old.supplierInvoiceId);
+      await this.auditFinance(
+        tx,
+        user,
+        metadata,
+        'SupplierPayment',
+        id,
+        'SUPPLIER_PAYMENT_REVERSED',
+        value,
+      );
+      return value;
+    });
+  }
+
   listAdjustments(bookingId: string) {
     return this.prisma.bookingAdjustment.findMany({
       where: { bookingId },
@@ -622,6 +2086,7 @@ export class BookingFinanceService {
         approvedBy: { select: moneySelect },
       },
       orderBy: { createdAt: 'desc' },
+      take: 500,
     });
   }
 
@@ -688,6 +2153,10 @@ export class BookingFinanceService {
     await this.assertFinanceWritable(old.bookingId, user);
     if (old.approvedAt)
       throw new ConflictException('Adjustment is already approved.');
+    if (old.createdById === user.id)
+      throw new ConflictException(
+        'The adjustment creator cannot approve it.',
+      );
     return this.prisma.$transaction(async (tx) => {
       const value = await tx.bookingAdjustment.update({
         where: { id },
@@ -943,6 +2412,22 @@ export class BookingFinanceService {
                 verifiedAt: new Date(),
               },
             });
+      await this.postPaymentJournal(tx, kind, id, user, metadata);
+      if (kind === 'passenger') {
+        const payment = await tx.passengerPayment.findUnique({
+          where: { id },
+          select: { customerInvoiceId: true },
+        });
+        if (payment?.customerInvoiceId)
+          await this.syncCustomerInvoiceStatus(tx, payment.customerInvoiceId);
+      } else {
+        const payment = await tx.supplierPayment.findUnique({
+          where: { id },
+          select: { supplierInvoiceId: true },
+        });
+        if (payment?.supplierInvoiceId)
+          await this.syncSupplierInvoiceStatus(tx, payment.supplierInvoiceId);
+      }
       await this.audit.log(
         {
           actorUserId: user.id,
@@ -970,6 +2455,496 @@ export class BookingFinanceService {
     );
   }
 
+  private async postPaymentJournal(
+    tx: Prisma.TransactionClient,
+    kind: 'passenger' | 'supplier',
+    id: string,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+  ) {
+    if (kind === 'passenger') {
+      const payment = await tx.passengerPayment.findUniqueOrThrow({
+        where: { id },
+        include: {
+          booking: { select: { customerId: true } },
+          bankTransaction: { select: { companyBankAccountId: true } },
+        },
+      });
+      if (!['RECEIVED', 'VERIFIED'].includes(payment.status)) return;
+      await this.ledger.postAutomatic(
+        tx,
+        {
+          sourceType: 'CUSTOMER_RECEIPT',
+          sourceRecordId: payment.id,
+          date: payment.paymentDate,
+          description: 'Customer receipt',
+          currency: payment.currency,
+          bookingId: payment.bookingId,
+          lines: [
+            {
+              ...(payment.bankTransaction
+                ? {
+                    bankAccountId: payment.bankTransaction.companyBankAccountId,
+                  }
+                : { mapping: 'PAYMENT_CLEARING' as const }),
+              debit: payment.amount,
+              bookingId: payment.bookingId,
+              customerId: payment.booking.customerId,
+            },
+            {
+              mapping: 'ACCOUNTS_RECEIVABLE',
+              credit: payment.amount,
+              bookingId: payment.bookingId,
+              customerId: payment.booking.customerId,
+            },
+          ],
+        },
+        user,
+        metadata,
+      );
+      return;
+    }
+    const payment = await tx.supplierPayment.findUniqueOrThrow({
+      where: { id },
+      include: {
+        bookingSupplier: { select: { supplierId: true } },
+        bankTransaction: { select: { companyBankAccountId: true } },
+      },
+    });
+    if (!['PAID', 'VERIFIED'].includes(payment.status)) return;
+    await this.ledger.postAutomatic(
+      tx,
+      {
+        sourceType: 'SUPPLIER_PAYMENT',
+        sourceRecordId: payment.id,
+        date: payment.paymentDate,
+        description: 'Supplier payment',
+        currency: payment.currency,
+        bookingId: payment.bookingId,
+        lines: [
+          {
+            mapping: 'ACCOUNTS_PAYABLE',
+            debit: payment.amount,
+            bookingId: payment.bookingId,
+            supplierId: payment.bookingSupplier.supplierId,
+          },
+          {
+            ...(payment.bankTransaction
+              ? {
+                  bankAccountId: payment.bankTransaction.companyBankAccountId,
+                }
+              : { mapping: 'PAYMENT_CLEARING' as const }),
+            credit: payment.amount,
+            bookingId: payment.bookingId,
+            supplierId: payment.bookingSupplier.supplierId,
+          },
+        ],
+      },
+      user,
+      metadata,
+    );
+  }
+
+  private async assertAdvanceBankAccount(
+    tx: Prisma.TransactionClient,
+    id: string | undefined,
+    currency: string,
+  ) {
+    if (!id) return;
+    const account = await tx.companyBankAccount.findUnique({ where: { id } });
+    if (!account?.isActive || account.currency !== currency.toUpperCase())
+      throw new BadRequestException(
+        'Advance bank account must be active and use the same currency.',
+      );
+  }
+
+  private customerInvoiceView<
+    T extends {
+      totalAmount: Prisma.Decimal;
+      status: string;
+      dueDate: Date | null;
+      payments: { amount: Prisma.Decimal; status: string }[];
+      advanceAllocations: { amount: Prisma.Decimal; reversedAt: Date | null }[];
+    },
+  >(invoice: T) {
+    const paid = this.total(
+      invoice.payments.filter((payment) =>
+        ['RECEIVED', 'VERIFIED'].includes(payment.status),
+      ),
+    );
+    const allocated = this.total(
+      invoice.advanceAllocations.filter((allocation) => !allocation.reversedAt),
+    );
+    return {
+      ...invoice,
+      amountPaid: paid.plus(allocated),
+      outstanding: Prisma.Decimal.max(
+        invoice.totalAmount.minus(paid).minus(allocated),
+        0,
+      ),
+      ageingBucket: this.ageingBucket(invoice.dueDate, invoice.status),
+    };
+  }
+
+  private supplierInvoiceView<
+    T extends {
+      totalAmount: Prisma.Decimal;
+      status: string;
+      dueDate: Date | null;
+      payments: { amount: Prisma.Decimal; status: string }[];
+      advanceAllocations: { amount: Prisma.Decimal; reversedAt: Date | null }[];
+    },
+  >(invoice: T) {
+    const paid = this.total(
+      invoice.payments.filter((payment) =>
+        ['PAID', 'VERIFIED'].includes(payment.status),
+      ),
+    );
+    const allocated = this.total(
+      invoice.advanceAllocations.filter((allocation) => !allocation.reversedAt),
+    );
+    return {
+      ...invoice,
+      amountPaid: paid.plus(allocated),
+      outstanding: Prisma.Decimal.max(
+        invoice.totalAmount.minus(paid).minus(allocated),
+        0,
+      ),
+      ageingBucket: this.ageingBucket(invoice.dueDate, invoice.status),
+    };
+  }
+
+  private advanceView<
+    T extends {
+      amount: Prisma.Decimal;
+      cancelledAt: Date | null;
+      allocations: { amount: Prisma.Decimal; reversedAt: Date | null }[];
+    },
+  >(advance: T) {
+    const allocatedAmount = this.total(
+      advance.allocations.filter((allocation) => !allocation.reversedAt),
+    );
+    return {
+      ...advance,
+      originalAmount: advance.amount,
+      allocatedAmount,
+      remainingAmount: advance.cancelledAt
+        ? new Prisma.Decimal(0)
+        : advance.amount.minus(allocatedAmount),
+    };
+  }
+
+  private ageingBucket(dueDate: Date | null, status: string) {
+    if (!dueDate || ['DRAFT', 'CANCELLED', 'PAID'].includes(status))
+      return null;
+    const days = Math.max(
+      0,
+      Math.floor((Date.now() - dueDate.getTime()) / 86_400_000),
+    );
+    if (days === 0) return 'CURRENT';
+    if (days <= 30) return '1_30';
+    if (days <= 60) return '31_60';
+    if (days <= 90) return '61_90';
+    return '90_PLUS';
+  }
+
+  private assertAllocation(
+    advance: {
+      amount: Prisma.Decimal;
+      currency: string;
+      bookingId: string | null;
+      customerId?: string;
+      supplierId?: string;
+      cancelledAt: Date | null;
+    },
+    invoice: {
+      totalAmount: Prisma.Decimal;
+      currency: string;
+      bookingId: string;
+      customerId?: string;
+      supplierId?: string;
+      status: string;
+    },
+    amount: Prisma.Decimal,
+    advanceAllocations: { amount: Prisma.Decimal }[],
+    payments: { amount: Prisma.Decimal; status: string }[],
+    invoiceAllocations: { amount: Prisma.Decimal }[],
+    validPaymentStatuses: string[],
+  ) {
+    if (advance.cancelledAt)
+      throw new ConflictException('Cancelled advances cannot be allocated.');
+    if (['DRAFT', 'CANCELLED', 'PAID'].includes(invoice.status))
+      throw new ConflictException('The invoice is not open for allocation.');
+    if (
+      (advance.customerId && advance.customerId !== invoice.customerId) ||
+      (advance.supplierId && advance.supplierId !== invoice.supplierId)
+    )
+      throw new BadRequestException(
+        'Advance and invoice belong to different parties.',
+      );
+    if (advance.bookingId && advance.bookingId !== invoice.bookingId)
+      throw new BadRequestException(
+        'Advance and invoice belong to different bookings.',
+      );
+    this.assertInvoiceCurrency(invoice.currency, advance.currency);
+    const available = advance.amount.minus(this.total(advanceAllocations));
+    const outstanding = invoice.totalAmount
+      .minus(
+        this.total(
+          payments.filter((payment) =>
+            validPaymentStatuses.includes(payment.status),
+          ),
+        ),
+      )
+      .minus(this.total(invoiceAllocations));
+    if (amount.greaterThan(available))
+      throw new ConflictException(
+        'Advance allocation exceeds the available advance balance.',
+      );
+    if (amount.greaterThan(outstanding))
+      throw new ConflictException(
+        'Advance allocation exceeds the invoice outstanding balance.',
+      );
+  }
+
+  private async syncCustomerInvoiceStatus(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ) {
+    const invoice = await tx.customerInvoice.findUniqueOrThrow({
+      where: { id },
+      include: {
+        payments: true,
+        advanceAllocations: { where: { reversedAt: null } },
+      },
+    });
+    if (['DRAFT', 'CANCELLED'].includes(invoice.status)) return;
+    const applied = this.total(
+      invoice.payments.filter((payment) =>
+        ['RECEIVED', 'VERIFIED'].includes(payment.status),
+      ),
+    ).plus(this.total(invoice.advanceAllocations));
+    await tx.customerInvoice.update({
+      where: { id },
+      data: {
+        status: applied.greaterThanOrEqualTo(invoice.totalAmount)
+          ? 'PAID'
+          : applied.isZero()
+            ? 'ISSUED'
+            : 'PARTIALLY_PAID',
+      },
+    });
+  }
+
+  private async syncSupplierInvoiceStatus(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ) {
+    const invoice = await tx.supplierInvoice.findUniqueOrThrow({
+      where: { id },
+      include: {
+        payments: true,
+        advanceAllocations: { where: { reversedAt: null } },
+      },
+    });
+    if (['DRAFT', 'CANCELLED'].includes(invoice.status)) return;
+    const applied = this.total(
+      invoice.payments.filter((payment) =>
+        ['PAID', 'VERIFIED'].includes(payment.status),
+      ),
+    ).plus(this.total(invoice.advanceAllocations));
+    await tx.supplierInvoice.update({
+      where: { id },
+      data: {
+        status: applied.greaterThanOrEqualTo(invoice.totalAmount)
+          ? 'PAID'
+          : applied.isZero()
+            ? 'APPROVED'
+            : 'PARTIALLY_PAID',
+      },
+    });
+  }
+
+  private async assertDocument(bookingId: string, documentId?: string) {
+    if (
+      documentId &&
+      !(await this.prisma.bookingDocument.findFirst({
+        where: { id: documentId, bookingId },
+        select: { id: true },
+      }))
+    )
+      throw new BadRequestException(
+        'Document does not belong to this booking.',
+      );
+  }
+
+  private async assertCustomerPayment(
+    tx: Prisma.TransactionClient,
+    bookingId: string,
+    invoiceId: string | undefined,
+    amount: Prisma.Decimal,
+    currency: string,
+    excludeId?: string,
+  ) {
+    if (invoiceId) {
+      const invoice = await tx.customerInvoice.findFirst({
+        where: { id: invoiceId, bookingId },
+        include: {
+          payments: {
+            where: {
+              id: { not: excludeId },
+              status: { in: ['RECEIVED', 'VERIFIED'] },
+            },
+          },
+          advanceAllocations: { where: { reversedAt: null } },
+        },
+      });
+      if (!invoice)
+        throw new BadRequestException(
+          'Customer invoice does not belong to this booking.',
+        );
+      if (['DRAFT', 'CANCELLED', 'PAID'].includes(invoice.status))
+        throw new ConflictException(
+          'Customer invoice is not open for payment.',
+        );
+      this.assertInvoiceCurrency(invoice.currency, currency);
+      const remaining = invoice.totalAmount
+        .minus(this.total(invoice.payments))
+        .minus(this.total(invoice.advanceAllocations));
+      if (amount.greaterThan(remaining))
+        throw new ConflictException(
+          'Payment exceeds the customer invoice outstanding balance; record the excess as an advance.',
+        );
+      return;
+    }
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      select: {
+        sellingPrice: true,
+        currency: true,
+        passengerPayments: {
+          where: {
+            id: { not: excludeId },
+            status: { in: ['RECEIVED', 'VERIFIED'] },
+          },
+          select: { amount: true },
+        },
+      },
+    });
+    this.assertInvoiceCurrency(booking.currency, currency);
+    if (
+      amount.greaterThan(
+        booking.sellingPrice.minus(this.total(booking.passengerPayments)),
+      )
+    )
+      throw new ConflictException(
+        'Payment exceeds the booking selling price; record the excess as a customer advance.',
+      );
+  }
+
+  private async assertSupplierPayment(
+    tx: Prisma.TransactionClient,
+    bookingId: string,
+    bookingSupplierId: string,
+    invoiceId: string | undefined,
+    amount: Prisma.Decimal,
+    currency: string,
+    excludeId?: string,
+  ) {
+    if (invoiceId) {
+      const invoice = await tx.supplierInvoice.findFirst({
+        where: { id: invoiceId, bookingId, bookingSupplierId },
+        include: {
+          payments: {
+            where: {
+              id: { not: excludeId },
+              status: { in: ['PAID', 'VERIFIED'] },
+            },
+          },
+          advanceAllocations: { where: { reversedAt: null } },
+        },
+      });
+      if (!invoice)
+        throw new BadRequestException(
+          'Supplier invoice does not belong to this booking supplier.',
+        );
+      if (['DRAFT', 'CANCELLED', 'PAID'].includes(invoice.status))
+        throw new ConflictException(
+          'Supplier invoice is not open for payment.',
+        );
+      this.assertInvoiceCurrency(invoice.currency, currency);
+      const remaining = invoice.totalAmount
+        .minus(this.total(invoice.payments))
+        .minus(this.total(invoice.advanceAllocations));
+      if (amount.greaterThan(remaining))
+        throw new ConflictException(
+          'Payment exceeds the supplier invoice outstanding balance; record the excess as an advance.',
+        );
+      return;
+    }
+    const supplier = await tx.bookingSupplier.findFirst({
+      where: { id: bookingSupplierId, bookingId },
+      select: {
+        supplierCost: true,
+        currency: true,
+        booking: { select: { currency: true } },
+        payments: {
+          where: {
+            id: { not: excludeId },
+            status: { in: ['PAID', 'VERIFIED'] },
+          },
+          select: { amount: true },
+        },
+      },
+    });
+    if (!supplier)
+      throw new BadRequestException(
+        'Supplier does not belong to this booking.',
+      );
+    this.assertInvoiceCurrency(
+      supplier.currency ?? supplier.booking.currency,
+      currency,
+    );
+    if (
+      supplier.supplierCost &&
+      amount.greaterThan(
+        supplier.supplierCost.minus(this.total(supplier.payments)),
+      )
+    )
+      throw new ConflictException(
+        'Payment exceeds the booking supplier cost; record the excess as a supplier advance.',
+      );
+  }
+
+  private assertInvoiceCurrency(expected: string, actual: string) {
+    if (expected.toUpperCase() !== actual.toUpperCase())
+      throw new BadRequestException(
+        'Currency must match the booking financial currency.',
+      );
+  }
+
+  private async auditFinance(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    metadata: RequestMetadata,
+    entityType: string,
+    entityId: string,
+    action: string,
+    value: object,
+  ) {
+    await this.audit.log(
+      {
+        actorUserId: user.id,
+        entityType,
+        entityId,
+        action,
+        newValues: JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue,
+        requestMetadata: metadata,
+      },
+      tx,
+    );
+  }
+
   private async assertBooking(id: string) {
     if (
       !(await this.prisma.booking.findUnique({
@@ -983,8 +2958,9 @@ export class BookingFinanceService {
   private async assertFinanceWritable(
     bookingId: string,
     user: AuthenticatedUser,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
   ) {
-    const booking = await this.prisma.booking.findUnique({
+    const booking = await client.booking.findUnique({
       where: { id: bookingId },
       select: { folderStatus: true },
     });

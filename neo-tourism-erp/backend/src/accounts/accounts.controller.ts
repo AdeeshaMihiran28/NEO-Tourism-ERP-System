@@ -19,15 +19,24 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { getRequestMetadata } from '../common/request-metadata';
 import {
   AccountsQueueQueryDto,
+  AllocateAdvanceDto,
+  CreateAdvanceDto,
   CreateAdjustmentDto,
+  CreateCustomerInvoiceDto,
   CreateDiscrepancyDto,
   CreatePassengerPaymentDto,
   CreateSupplierPaymentDto,
+  CreateSupplierAdvanceDto,
+  CreateSupplierInvoiceDto,
   DiscrepancyQueryDto,
+  InvoiceListQueryDto,
   ResolveDiscrepancyDto,
+  ReverseAllocationDto,
   UpdatePassengerPaymentDto,
+  UpdateCustomerInvoiceDto,
   UpdateReconciliationDto,
   UpdateSupplierPaymentDto,
+  UpdateSupplierInvoiceDto,
 } from './dto/accounts.dto';
 import { BookingFinanceService } from './services/booking-finance.service';
 
@@ -48,10 +57,28 @@ export class AccountsController {
     return this.finance.dashboard();
   }
 
+  @Get('accounts/receivables')
+  @Permissions('finance.view')
+  receivables(@Query() query: InvoiceListQueryDto) {
+    return this.finance.receivables(query);
+  }
+
+  @Get('accounts/payables')
+  @Permissions('finance.view')
+  payables(@Query() query: InvoiceListQueryDto) {
+    return this.finance.payables(query);
+  }
+
   @Get('accounts/reconciled')
   @Permissions('finance.view')
   reconciled(@Query() query: AccountsQueueQueryDto) {
     return this.finance.reconciled(query);
+  }
+
+  @Get('accounts/booking-profitability')
+  @Permissions('report.audit.view')
+  bookingProfitability() {
+    return this.finance.bookingProfitabilityReport();
   }
 
   @Get('accounts/discrepancies')
@@ -64,6 +91,224 @@ export class AccountsController {
   @Permissions('finance.view')
   financialSummary(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.finance.financialSummary(id);
+  }
+
+  @Get('bookings/:id/customer-invoices')
+  @Permissions('finance.view')
+  customerInvoices(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.finance.listCustomerInvoices(id);
+  }
+
+  @Post('bookings/:id/customer-invoices')
+  @Permissions('finance.edit')
+  createCustomerInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreateCustomerInvoiceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.createCustomerInvoice(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Patch('customer-invoices/:id')
+  @Permissions('finance.edit')
+  updateCustomerInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateCustomerInvoiceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.updateCustomerInvoice(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('customer-invoices/:id/cancel')
+  @Permissions('finance.edit')
+  cancelCustomerInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.cancelInvoice(
+      'customer',
+      id,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Get('bookings/:id/supplier-invoices')
+  @Permissions('finance.view')
+  supplierInvoices(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.finance.listSupplierInvoices(id);
+  }
+
+  @Post('bookings/:id/supplier-invoices')
+  @Permissions('finance.edit')
+  createSupplierInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreateSupplierInvoiceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.createSupplierInvoice(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Patch('supplier-invoices/:id')
+  @Permissions('finance.edit')
+  updateSupplierInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateSupplierInvoiceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.updateSupplierInvoice(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('supplier-invoices/:id/cancel')
+  @Permissions('finance.edit')
+  cancelSupplierInvoice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.cancelInvoice(
+      'supplier',
+      id,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Get('bookings/:id/customer-advances')
+  @Permissions('finance.view')
+  customerAdvances(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.finance.listCustomerAdvances(id);
+  }
+
+  @Post('bookings/:id/customer-advances')
+  @Permissions('finance.edit')
+  createCustomerAdvance(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreateAdvanceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.createCustomerAdvance(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('customer-advances/:id/allocations')
+  @Permissions('finance.edit')
+  allocateCustomerAdvance(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AllocateAdvanceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.allocateAdvance(
+      'customer',
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('customer-advance-allocations/:id/reverse')
+  @Permissions('finance.edit')
+  reverseCustomerAllocation(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReverseAllocationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.reverseAllocation(
+      'customer',
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Get('bookings/:id/supplier-advances')
+  @Permissions('finance.view')
+  supplierAdvances(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.finance.listSupplierAdvances(id);
+  }
+
+  @Post('bookings/:id/supplier-advances')
+  @Permissions('finance.edit')
+  createSupplierAdvance(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CreateSupplierAdvanceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.createSupplierAdvance(
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('supplier-advances/:id/allocations')
+  @Permissions('finance.edit')
+  allocateSupplierAdvance(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AllocateAdvanceDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.allocateAdvance(
+      'supplier',
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('supplier-advance-allocations/:id/reverse')
+  @Permissions('finance.edit')
+  reverseSupplierAllocation(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReverseAllocationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.reverseAllocation(
+      'supplier',
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
   }
 
   @Get('bookings/:id/reconciliation')
@@ -192,6 +437,23 @@ export class AccountsController {
     );
   }
 
+  @Post('passenger-payments/:id/reverse')
+  @Permissions('finance.payment.verify')
+  reversePassengerPayment(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReverseAllocationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.reversePayment(
+      'customer',
+      id,
+      dto,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
   @Get('bookings/:id/supplier-payments')
   @Permissions('finance.view')
   supplierPayments(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -239,6 +501,23 @@ export class AccountsController {
   ) {
     return this.finance.verifySupplierPayment(
       id,
+      user,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('supplier-payments/:id/reverse')
+  @Permissions('finance.payment.verify')
+  reverseSupplierPayment(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReverseAllocationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.finance.reversePayment(
+      'supplier',
+      id,
+      dto,
       user,
       getRequestMetadata(request),
     );

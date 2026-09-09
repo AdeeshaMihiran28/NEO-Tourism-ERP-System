@@ -16,11 +16,13 @@ import {
 import {
   AccountsStatus,
   BookingAdjustmentType,
+  CustomerInvoiceStatus,
   DiscrepancyStatus,
   DiscrepancyType,
   PassengerPaymentStatus,
   PaymentMethod,
   SupplierPaymentStatus,
+  SupplierInvoiceStatus,
 } from '../../../generated/prisma/enums';
 
 const positiveMoney =
@@ -39,7 +41,17 @@ export class AccountsQueueQueryDto {
   @IsOptional() @IsDateString({ strict: true }) dateTo?: string;
 }
 
+export class InvoiceListQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
+  @IsOptional() @IsString() @MaxLength(150) search?: string;
+  @IsOptional() @IsDateString({ strict: true }) dateFrom?: string;
+  @IsOptional() @IsDateString({ strict: true }) dateTo?: string;
+}
+
 export class CreatePassengerPaymentDto {
+  @IsOptional() @IsUUID() customerInvoiceId?: string;
+  @IsOptional() @IsUUID() companyBankAccountId?: string;
   @IsString() @Matches(positiveMoney) amount!: string;
   @IsString() @Matches(currency) currency!: string;
   @IsEnum(PaymentMethod) paymentMethod!: PaymentMethod;
@@ -50,6 +62,7 @@ export class CreatePassengerPaymentDto {
 }
 
 export class UpdatePassengerPaymentDto {
+  @IsOptional() @IsUUID() customerInvoiceId?: string;
   @IsOptional() @IsString() @Matches(positiveMoney) amount?: string;
   @IsOptional() @IsString() @Matches(currency) currency?: string;
   @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
@@ -61,8 +74,11 @@ export class UpdatePassengerPaymentDto {
 
 export class CreateSupplierPaymentDto {
   @IsUUID() bookingSupplierId!: string;
+  @IsOptional() @IsUUID() supplierInvoiceId?: string;
+  @IsOptional() @IsUUID() companyBankAccountId?: string;
   @IsString() @Matches(positiveMoney) amount!: string;
   @IsString() @Matches(currency) currency!: string;
+  @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
   @IsOptional() @IsString() @MaxLength(200) paymentReference?: string;
   @IsDateString({ strict: true }) paymentDate!: string;
   @IsOptional() @IsEnum(SupplierPaymentStatus) status?: SupplierPaymentStatus;
@@ -73,10 +89,92 @@ export class UpdateSupplierPaymentDto {
   @IsOptional() @IsUUID() bookingSupplierId?: string;
   @IsOptional() @IsString() @Matches(positiveMoney) amount?: string;
   @IsOptional() @IsString() @Matches(currency) currency?: string;
+  @IsOptional() @IsUUID() supplierInvoiceId?: string;
+  @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
   @IsOptional() @IsString() @MaxLength(200) paymentReference?: string;
   @IsOptional() @IsDateString({ strict: true }) paymentDate?: string;
   @IsOptional() @IsEnum(SupplierPaymentStatus) status?: SupplierPaymentStatus;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+}
+
+export class CreateCustomerInvoiceDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) invoiceNumber!: string;
+  @IsDateString({ strict: true }) invoiceDate!: string;
+  @IsOptional() @IsDateString({ strict: true }) dueDate?: string;
+  @IsString() @Matches(currency) currency!: string;
+  @IsString() @Matches(positiveMoney) totalAmount!: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) netAmount?: string;
+  @IsOptional() @IsUUID() taxCodeId?: string;
+  @IsOptional() @IsEnum(CustomerInvoiceStatus) status?: CustomerInvoiceStatus;
+  @IsOptional() @IsUUID() documentId?: string;
+}
+
+export class UpdateCustomerInvoiceDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  invoiceNumber?: string;
+  @IsOptional() @IsDateString({ strict: true }) invoiceDate?: string;
+  @IsOptional() @IsDateString({ strict: true }) dueDate?: string;
+  @IsOptional() @IsString() @Matches(currency) currency?: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) totalAmount?: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) netAmount?: string;
+  @IsOptional() @IsUUID() taxCodeId?: string;
+  @IsOptional() @IsEnum(CustomerInvoiceStatus) status?: CustomerInvoiceStatus;
+  @IsOptional() @IsUUID() documentId?: string;
+}
+
+export class CreateSupplierInvoiceDto {
+  @IsUUID() bookingSupplierId!: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) invoiceNumber!: string;
+  @IsDateString({ strict: true }) invoiceDate!: string;
+  @IsOptional() @IsDateString({ strict: true }) dueDate?: string;
+  @IsString() @Matches(currency) currency!: string;
+  @IsString() @Matches(positiveMoney) totalAmount!: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) netAmount?: string;
+  @IsOptional() @IsUUID() taxCodeId?: string;
+  @IsOptional() @IsEnum(SupplierInvoiceStatus) status?: SupplierInvoiceStatus;
+  @IsOptional() @IsUUID() documentId?: string;
+}
+
+export class UpdateSupplierInvoiceDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  invoiceNumber?: string;
+  @IsOptional() @IsDateString({ strict: true }) invoiceDate?: string;
+  @IsOptional() @IsDateString({ strict: true }) dueDate?: string;
+  @IsOptional() @IsString() @Matches(currency) currency?: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) totalAmount?: string;
+  @IsOptional() @IsString() @Matches(positiveMoney) netAmount?: string;
+  @IsOptional() @IsUUID() taxCodeId?: string;
+  @IsOptional() @IsEnum(SupplierInvoiceStatus) status?: SupplierInvoiceStatus;
+  @IsOptional() @IsUUID() documentId?: string;
+}
+
+export class CreateAdvanceDto {
+  @IsOptional() @IsUUID() companyBankAccountId?: string;
+  @IsString() @Matches(positiveMoney) amount!: string;
+  @IsString() @Matches(currency) currency!: string;
+  @IsEnum(PaymentMethod) paymentMethod!: PaymentMethod;
+  @IsOptional() @IsString() @MaxLength(200) paymentReference?: string;
+  @IsDateString({ strict: true }) paymentDate!: string;
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+}
+
+export class CreateSupplierAdvanceDto extends CreateAdvanceDto {
+  @IsUUID() bookingSupplierId!: string;
+}
+
+export class AllocateAdvanceDto {
+  @IsUUID() invoiceId!: string;
+  @IsString() @Matches(positiveMoney) amount!: string;
+}
+
+export class ReverseAllocationDto {
+  @IsString() @IsNotEmpty() @MaxLength(1000) reason!: string;
 }
 
 export class CreateAdjustmentDto {
