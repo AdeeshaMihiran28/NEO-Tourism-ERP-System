@@ -319,6 +319,7 @@ export class ItService {
       where: { employmentStatus: { notIn: ['TERMINATED', 'INACTIVE'] } },
       select: employeeMini,
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      take: 500,
     });
   }
   offboarding() {
@@ -395,6 +396,7 @@ export class ItService {
       where: { requestedByEmployeeId: employee.id, ...ticketWhere(query) },
       include: ticketInclude,
       orderBy: { createdAt: 'desc' },
+      take: 100,
     });
   }
   tickets(query: TicketQueryDto) {
@@ -582,6 +584,7 @@ export class ItService {
     return this.prisma.accessRequest.findMany({
       where: { employeeId: employee.id },
       orderBy: { createdAt: 'desc' },
+      take: 100,
     });
   }
   accessRequests(query: AccessQueryDto) {
