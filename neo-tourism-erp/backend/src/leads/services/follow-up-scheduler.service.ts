@@ -28,10 +28,17 @@ export class FollowUpSchedulerService {
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'follow-up-attention-evaluation' })
   async runHourlyEvaluation() {
-    const result = await this.processScheduledFollowUps();
-    this.logger.log(
-      `Follow-up evaluation completed: ${result.dueCount} due, ${result.missedCount} missed, ${result.evaluatedCount} leads evaluated.`,
-    );
+    try {
+      const result = await this.processScheduledFollowUps();
+      this.logger.log(
+        `Follow-up evaluation completed: ${result.dueCount} due, ${result.missedCount} missed, ${result.evaluatedCount} leads evaluated.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Follow-up evaluation failed; it will retry on the next schedule.',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   async processScheduledFollowUps(now = new Date()) {

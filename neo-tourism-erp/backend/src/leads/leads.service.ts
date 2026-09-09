@@ -7,13 +7,21 @@ import {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
 import type { Lead, Prisma } from '../../generated/prisma/client';
-import { LeadActivityType, LeadStatus } from '../../generated/prisma/enums';
+import {
+  LeadActivityType,
+  LeadStatus,
+  NotificationType,
+} from '../../generated/prisma/enums';
+import type { RequestMetadata } from '../common/request-metadata';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateLeadNoteDto } from './dto/create-lead-note.dto';
 import type { CreateLeadDto } from './dto/create-lead.dto';
 import type { LeadQueryDto } from './dto/lead-query.dto';
 import type { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
 import type { UpdateLeadDto } from './dto/update-lead.dto';
+import type { ReassignLeadDto } from './dto/reassign-lead.dto';
+import { LeadAttentionService } from './services/lead-attention.service';
 
 const customerSummarySelect = {
   id: true,
@@ -41,9 +49,15 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
+    private readonly attentionService: LeadAttentionService,
   ) {}
 
-  async create(dto: CreateLeadDto, actorId: string) {
+  async create(
+    dto: CreateLeadDto,
+    actorId: string,
+    requestMetadata?: RequestMetadata,
+  ) {
     return this.prisma.$transaction(async (transaction) => {
       const customer = await transaction.customer.findUnique({
         where: { id: dto.customerId },
@@ -71,13 +85,14 @@ export class LeadsService {
           description: 'Lead created.',
         },
       });
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId,
+          actorUserId: actorId,
           entityType: 'Lead',
           entityId: lead.id,
           action: 'LEAD_CREATED',
           newValues: this.leadSnapshot(lead),
+          requestMetadata,
         },
         transaction,
       );
@@ -104,6 +119,21 @@ export class LeadsService {
     return this.findPage(this.buildFilters(query, true), query);
   }
 
+  findAttention(query: LeadQueryDto, user: AuthenticatedUser) {
+    const canViewTeam =
+      user.permissions.includes('lead.attention.manage') ||
+      user.permissions.includes('lead.view_all');
+    return this.findPage(
+      {
+        ...this.buildFilters(query, canViewTeam),
+        isAttentionRequired: true,
+        ...(!canViewTeam && { assignedUserId: user.id }),
+      },
+      query,
+      [{ attentionSince: 'asc' }, { id: 'asc' }],
+    );
+  }
+
   async findOne(id: string, user: AuthenticatedUser) {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
@@ -115,6 +145,9 @@ export class LeadsService {
           include: { user: { select: agentSelect } },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         },
+        saleSubmission: {
+          select: { id: true, status: true, submittedAt: true },
+        },
       },
     });
     if (!lead) throw new NotFoundException('Lead not found.');
@@ -122,7 +155,7 @@ export class LeadsService {
     return lead;
   }
 
-  async claim(id: string, actorId: string) {
+  async claim(id: string, actorId: string, requestMetadata?: RequestMetadata) {
     return this.prisma.$transaction(async (transaction) => {
       const now = new Date();
       const claimed = await transaction.lead.updateMany({
@@ -161,26 +194,44 @@ export class LeadsService {
           metadata: { oldAssignedUserId: null, newAssignedUserId: actorId },
         },
       });
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId,
+          actorUserId: actorId,
           entityType: 'Lead',
           entityId: id,
-          action: 'LEAD_CLAIMED',
+          action: 'LEAD_ASSIGNED',
           oldValues: { assignedUserId: null, status: LeadStatus.NEW },
           newValues: {
             assignedUserId: actorId,
             assignedAt: now.toISOString(),
             status: LeadStatus.HANDLING,
           },
+          requestMetadata,
         },
         transaction,
       );
+      await this.notificationsService.create(
+        {
+          userId: actorId,
+          type: NotificationType.LEAD_ASSIGNED,
+          title: 'Lead Assigned',
+          message: `${lead.customer.firstName} ${lead.customer.lastName} has been added to your pipeline.`,
+          entityType: 'Lead',
+          entityId: lead.id,
+        },
+        transaction,
+      );
+      await this.attentionService.evaluateLeadAttention(id, now, transaction);
       return lead;
     });
   }
 
-  async update(id: string, dto: UpdateLeadDto, user: AuthenticatedUser) {
+  async update(
+    id: string,
+    dto: UpdateLeadDto,
+    user: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
+  ) {
     return this.prisma.$transaction(async (transaction) => {
       const existing = await transaction.lead.findUnique({ where: { id } });
       if (!existing) throw new NotFoundException('Lead not found.');
@@ -213,14 +264,15 @@ export class LeadsService {
           description: 'Lead details updated.',
         },
       });
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId: user.id,
+          actorUserId: user.id,
           entityType: 'Lead',
           entityId: id,
           action: 'LEAD_UPDATED',
           oldValues: this.leadSnapshot(existing),
           newValues: this.leadSnapshot(lead),
+          requestMetadata,
         },
         transaction,
       );
@@ -232,6 +284,7 @@ export class LeadsService {
     id: string,
     dto: UpdateLeadStatusDto,
     user: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const existing = await transaction.lead.findUnique({ where: { id } });
@@ -253,15 +306,21 @@ export class LeadsService {
           metadata: { oldStatus: existing.status, newStatus: dto.status },
         },
       });
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId: user.id,
+          actorUserId: user.id,
           entityType: 'Lead',
           entityId: id,
           action: 'LEAD_STATUS_CHANGED',
           oldValues: { status: existing.status },
           newValues: { status: dto.status },
+          requestMetadata,
         },
+        transaction,
+      );
+      await this.attentionService.clearAttentionWhenResolved(
+        id,
+        now,
         transaction,
       );
       return lead;
@@ -272,6 +331,7 @@ export class LeadsService {
     id: string,
     dto: CreateLeadNoteDto,
     user: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const existing = await transaction.lead.findUnique({ where: { id } });
@@ -293,17 +353,112 @@ export class LeadsService {
         where: { id },
         data: { lastMeaningfulActivityAt: activity.createdAt },
       });
-      await this.auditService.create(
+      await this.auditService.log(
         {
-          actorId: user.id,
+          actorUserId: user.id,
           entityType: 'Lead',
           entityId: id,
           action: 'LEAD_NOTE_ADDED',
           newValues: { activityId: activity.id, content },
+          requestMetadata,
         },
         transaction,
       );
+      await this.attentionService.clearAttentionWhenResolved(
+        id,
+        activity.createdAt,
+        transaction,
+      );
       return activity;
+    });
+  }
+
+  async reassign(
+    id: string,
+    dto: ReassignLeadDto,
+    user: AuthenticatedUser,
+    requestMetadata?: RequestMetadata,
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      const existing = await transaction.lead.findUnique({
+        where: { id },
+        include: {
+          customer: { select: { firstName: true, lastName: true } },
+        },
+      });
+      if (!existing) throw new NotFoundException('Lead not found.');
+      if (!existing.isAttentionRequired) {
+        throw new ConflictException('Only attention leads can be reassigned.');
+      }
+      if (existing.assignedUserId === dto.newAssignedUserId) {
+        throw new ConflictException('Lead is already assigned to this user.');
+      }
+      const newOwner = await transaction.user.findUnique({
+        where: { id: dto.newAssignedUserId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          isActive: true,
+        },
+      });
+      if (!newOwner || !newOwner.isActive) {
+        throw new NotFoundException('Active replacement user not found.');
+      }
+
+      const now = new Date();
+      const lead = await transaction.lead.update({
+        where: { id },
+        data: {
+          assignedUserId: newOwner.id,
+          assignedAt: now,
+        },
+        include: leadListInclude,
+      });
+      await transaction.followUp.updateMany({
+        where: { leadId: id, status: 'SCHEDULED' },
+        data: { assignedUserId: newOwner.id },
+      });
+      await transaction.leadActivity.create({
+        data: {
+          leadId: id,
+          userId: user.id,
+          type: LeadActivityType.LEAD_REASSIGNED,
+          description: `Lead reassigned to ${newOwner.firstName} ${newOwner.lastName}.`,
+          metadata: {
+            oldAssignedUserId: existing.assignedUserId,
+            newAssignedUserId: newOwner.id,
+            reason: dto.reason.trim(),
+          },
+        },
+      });
+      await this.auditService.log(
+        {
+          actorUserId: user.id,
+          entityType: 'Lead',
+          entityId: id,
+          action: 'LEAD_REASSIGNED',
+          oldValues: { assignedUserId: existing.assignedUserId },
+          newValues: { assignedUserId: newOwner.id },
+          metadata: { reason: dto.reason.trim() },
+          requestMetadata,
+        },
+        transaction,
+      );
+      await this.notificationsService.create(
+        {
+          userId: newOwner.id,
+          type: NotificationType.LEAD_REASSIGNED,
+          title: 'Lead Reassigned',
+          message: `${existing.customer.firstName} ${existing.customer.lastName} has been reassigned to you.`,
+          entityType: 'Lead',
+          entityId: id,
+          metadata: { reason: dto.reason.trim() },
+        },
+        transaction,
+      );
+      return lead;
     });
   }
 
@@ -408,6 +563,9 @@ export class LeadsService {
       | 'salesNotes'
       | 'nextActionAt'
       | 'lastMeaningfulActivityAt'
+      | 'isAttentionRequired'
+      | 'attentionReason'
+      | 'attentionSince'
     >,
   ): Prisma.InputJsonObject {
     return {
@@ -424,6 +582,9 @@ export class LeadsService {
       nextActionAt: lead.nextActionAt?.toISOString() ?? null,
       lastMeaningfulActivityAt:
         lead.lastMeaningfulActivityAt?.toISOString() ?? null,
+      isAttentionRequired: lead.isAttentionRequired,
+      attentionReason: lead.attentionReason,
+      attentionSince: lead.attentionSince?.toISOString() ?? null,
     };
   }
 }
