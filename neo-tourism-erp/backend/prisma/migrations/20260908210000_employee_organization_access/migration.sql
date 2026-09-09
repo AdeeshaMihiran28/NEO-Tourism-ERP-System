@@ -1,0 +1,10 @@
+CREATE TYPE "OrganizationLevel" AS ENUM ('STAFF', 'SUPERVISOR', 'MANAGER', 'DEPARTMENT_HEAD', 'DIRECTOR', 'OWNER');
+
+ALTER TYPE "EmploymentChangeType" ADD VALUE 'ORGANIZATION_LEVEL_CHANGE';
+ALTER TYPE "AccessReviewTriggerType" ADD VALUE 'ORGANIZATION_LEVEL_CHANGE';
+
+ALTER TABLE "Employee"
+ADD COLUMN "organizationLevel" "OrganizationLevel" NOT NULL DEFAULT 'STAFF';
+
+ALTER TABLE "EmploymentHistory"
+ADD COLUMN "organizationLevel" "OrganizationLevel" NOT NULL DEFAULT 'STAFF';
