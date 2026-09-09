@@ -36,11 +36,22 @@ import {
   UpdateTravelStatusDto,
 } from './dto/booking.dto';
 import { BookingsService } from './bookings.service';
+import { ReopenBookingDto } from './dto/lifecycle.dto';
+import { BookingLifecycleService } from './services/booking-lifecycle.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BookingsController {
-  constructor(private readonly bookingsService: BookingsService) {}
+  constructor(
+    private readonly bookingsService: BookingsService,
+    private readonly lifecycleService: BookingLifecycleService,
+  ) {}
+
+  @Get('bookings/lifecycle-summary')
+  @Permissions('booking.lifecycle.view')
+  lifecycleSummary() {
+    return this.lifecycleService.summary();
+  }
 
   @Post('sale-submissions/:id/create-booking')
   @Permissions('booking.create')
@@ -72,6 +83,60 @@ export class BookingsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.bookingsService.findOne(id, user);
+  }
+
+  @Get('bookings/:id/lifecycle')
+  @Permissions('booking.lifecycle.view')
+  lifecycle(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.lifecycleService.getLifecycle(id, user);
+  }
+
+  @Post('bookings/:id/lifecycle/re-evaluate')
+  @Permissions('booking.lifecycle.manage')
+  reevaluate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.lifecycleService.evaluateBookingLifecycle(id, {
+      actorId: user.id,
+      requestMetadata: getRequestMetadata(request),
+      auditReevaluation: true,
+      allowCloseAfterReopen: true,
+    });
+  }
+
+  @Post('bookings/:id/operations/complete')
+  @Permissions('booking.operations.complete')
+  completeOperations(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.lifecycleService.completeOperations(
+      id,
+      user.id,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('bookings/:id/reopen')
+  @Permissions('booking.reopen')
+  reopen(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReopenBookingDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.lifecycleService.reopen(
+      id,
+      dto.reason,
+      user.id,
+      getRequestMetadata(request),
+    );
   }
 
   @Patch('bookings/:id')

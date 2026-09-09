@@ -208,10 +208,17 @@ export class BookingLifecycleService {
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'booking-lifecycle-evaluation' })
   async scheduledEvaluation() {
-    const result = await this.evaluateAllActiveBookings();
-    this.logger.log(
-      `Booking lifecycle evaluated: ${result.evaluated} active folders, ${result.changed} changed.`,
-    );
+    try {
+      const result = await this.evaluateAllActiveBookings();
+      this.logger.log(
+        `Booking lifecycle evaluated: ${result.evaluated} active folders, ${result.changed} changed.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Booking lifecycle evaluation failed; it will retry on the next schedule.',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   async evaluateAllActiveBookings(now = new Date()) {

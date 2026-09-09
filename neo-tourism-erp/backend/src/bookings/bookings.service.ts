@@ -31,6 +31,7 @@ import type {
   UpdateBookingTaskDto,
   UpdatePassengerDto,
 } from './dto/booking.dto';
+import { BookingLifecycleService } from './services/booking-lifecycle.service';
 
 const personSelect = {
   id: true,
@@ -84,6 +85,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
+    private readonly lifecycleService: BookingLifecycleService,
   ) {}
 
   async createFromSale(
@@ -140,6 +142,10 @@ export class BookingsService {
           },
           include: bookingInclude,
         });
+        await tx.marketingAttribution.updateMany({
+          where: { leadId: sale.leadId, isActive: true },
+          data: { bookingId: booking.id, convertedAt: new Date() },
+        });
         await this.auditService.log(
           {
             actorUserId: user.id,
@@ -177,6 +183,36 @@ export class BookingsService {
             entityId: booking.id,
           },
           tx,
+        );
+        const accountsUsers = await tx.user.findMany({
+          where: {
+            isActive: true,
+            roles: {
+              some: {
+                role: {
+                  permissions: {
+                    some: { permission: { code: 'finance.reconcile' } },
+                  },
+                },
+              },
+            },
+          },
+          select: { id: true },
+        });
+        await Promise.all(
+          accountsUsers.map(({ id }) =>
+            this.notificationsService.create(
+              {
+                userId: id,
+                type: NotificationType.RECONCILIATION_REQUIRED,
+                title: 'Reconciliation Required',
+                message: `Folder ${folderNumber} is ready in the Accounts reconciliation queue.`,
+                entityType: 'Booking',
+                entityId: booking.id,
+              },
+              tx,
+            ),
+          ),
         );
         return booking;
       });
@@ -323,7 +359,7 @@ export class BookingsService {
       throw new ForbiddenException(
         'finance.edit is required to change supplier cost.',
       );
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const existing = await this.requireBooking(id, user, tx);
       const start = dto.travelStartDate
         ? this.date(dto.travelStartDate)
@@ -366,6 +402,18 @@ export class BookingsService {
       );
       return booking;
     });
+    if (
+      dto.travelStartDate !== undefined ||
+      dto.travelEndDate !== undefined ||
+      dto.finalServiceDate !== undefined
+    ) {
+      await this.lifecycleService.evaluateBookingLifecycle(id, {
+        actorId: user.id,
+        requestMetadata: metadata,
+      });
+      return this.findOne(id, user);
+    }
+    return result;
   }
 
   async assignOperations(
@@ -378,13 +426,25 @@ export class BookingsService {
       const existing = await this.requireBooking(id, user, tx);
       const owner = await tx.user.findUnique({
         where: { id: dto.userId },
-        include: { department: true, roles: { include: { role: true } } },
+        include: {
+          roles: {
+            include: {
+              role: {
+                include: {
+                  permissions: { include: { permission: true } },
+                },
+              },
+            },
+          },
+        },
       });
       if (!owner?.isActive)
         throw new NotFoundException('Active Operations user not found.');
-      const appropriate =
-        owner.department?.name === 'Administration / Operations' ||
-        owner.roles.some(({ role }) => role.name === 'OPERATIONS');
+      const appropriate = owner.roles.some(({ role }) =>
+        role.permissions.some(
+          ({ permission }) => permission.code === 'booking.operations.complete',
+        ),
+      );
       if (!appropriate)
         throw new BadRequestException(
           'Selected user is not an Operations user.',
@@ -429,6 +489,10 @@ export class BookingsService {
     user: AuthenticatedUser,
     metadata?: RequestMetadata,
   ) {
+    if (field === 'operationsStatus' && value === 'COMPLETE')
+      throw new ConflictException(
+        'Use the explicit Operations completion action.',
+      );
     return this.prisma.$transaction(async (tx) => {
       const existing = await this.requireBooking(id, user, tx);
       const oldValue = existing[field];
@@ -890,6 +954,13 @@ export class BookingsService {
     const booking = await tx.booking.findUnique({ where: { id } });
     if (!booking) throw new NotFoundException('Booking not found.');
     this.assertAccess(booking, user);
+    if (
+      booking.folderStatus === 'CLOSED' &&
+      !user.permissions.includes('booking.closed.edit')
+    )
+      throw new ForbiddenException(
+        'This folder is closed. Reopen it or request booking.closed.edit.',
+      );
     return booking;
   }
   private assertAccess(
