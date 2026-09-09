@@ -15,6 +15,7 @@ import {
   MarketingContentApprovalStatus,
   MarketingContentStage,
   MarketingContentType,
+  MarketingChannel,
   MarketingPriority,
 } from '../../../../generated/prisma/client';
 
@@ -65,6 +66,7 @@ export class AssignContentDto {
 export class CreateVersionDto {
   @IsOptional() @IsString() @MaxLength(255) fileName?: string;
   @IsOptional() @IsString() @MaxLength(120) fileType?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) fileSize?: number;
   @IsOptional() @IsString() @MaxLength(500) storageKey?: string;
   @IsOptional() @IsString() @MaxLength(5000) caption?: string;
   @IsOptional() @IsString() @MaxLength(10000) copyText?: string;
@@ -92,4 +94,13 @@ export class ApprovalQueryDto {
 
 export class CreateCommentDto {
   @IsString() @IsNotEmpty() @MaxLength(2000) comment!: string;
+}
+
+export class SchedulePublicationDto {
+  @IsEnum(MarketingChannel) channel!: MarketingChannel;
+  @IsDateString() scheduledAt!: string;
+}
+
+export class PublishPublicationDto {
+  @IsOptional() @IsString() @MaxLength(500) externalReference?: string;
 }

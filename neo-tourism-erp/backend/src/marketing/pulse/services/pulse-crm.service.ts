@@ -17,23 +17,51 @@ export class PulseCrmService {
         : period === PulsePeriod.THIRTY_DAYS
           ? new Date(today.getTime() - 29 * 86400000)
           : currentStart;
-    const [todayCount, periodCount, current, previous] = await Promise.all([
-      this.prisma.lead.count({ where: { createdAt: { gte: today } } }),
-      this.prisma.lead.count({ where: { createdAt: { gte: periodStart } } }),
-      this.prisma.lead.groupBy({
-        by: ['destination'],
-        where: { createdAt: { gte: currentStart }, destination: { not: null } },
-        _count: { _all: true },
-      }),
-      this.prisma.lead.groupBy({
-        by: ['destination'],
-        where: {
-          createdAt: { gte: previousStart, lt: currentStart },
-          destination: { not: null },
-        },
-        _count: { _all: true },
-      }),
-    ]);
+    const [todayCount, periodCount, current, previous, campaignGroups] =
+      await Promise.all([
+        this.prisma.lead.count({
+          where: { createdAt: { gte: today, lte: now } },
+        }),
+        this.prisma.lead.count({
+          where: { createdAt: { gte: periodStart, lte: now } },
+        }),
+        this.prisma.lead.groupBy({
+          by: ['destination'],
+          where: {
+            createdAt: { gte: currentStart, lte: now },
+            destination: { not: null },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.lead.groupBy({
+          by: ['destination'],
+          where: {
+            createdAt: { gte: previousStart, lt: currentStart },
+            destination: { not: null },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.marketingAttribution.groupBy({
+          by: ['campaignId'],
+          where: {
+            isActive: true,
+            confidence: { not: 'UNATTRIBUTED' },
+            campaignId: { not: null },
+            firstTouchAt: { gte: periodStart, lte: now },
+          },
+          _count: { _all: true },
+        }),
+      ]);
+    const campaignIds = campaignGroups.flatMap(({ campaignId }) =>
+      campaignId ? [campaignId] : [],
+    );
+    const campaigns = await this.prisma.marketingCampaign.findMany({
+      where: { id: { in: campaignIds } },
+      select: { id: true, campaignCode: true, name: true },
+    });
+    const campaignMap = new Map(
+      campaigns.map((campaign) => [campaign.id, campaign]),
+    );
     const minimum = Math.max(
       1,
       Number(process.env.MARKETING_TREND_MIN_CURRENT_ENQUIRIES ?? 5),
@@ -78,8 +106,17 @@ export class PulseCrmService {
       minimumCurrentPeriodEnquiries: minimum,
       destinations,
       campaignEnquiries: {
-        status: 'NOT_YET_AVAILABLE',
-        message: 'Reliable Lead-to-campaign attribution is not yet available.',
+        status: 'AVAILABLE',
+        items: campaignGroups
+          .flatMap((group) => {
+            const campaign = group.campaignId
+              ? campaignMap.get(group.campaignId)
+              : undefined;
+            return campaign
+              ? [{ ...campaign, enquiries: group._count._all }]
+              : [];
+          })
+          .sort((a, b) => b.enquiries - a.enquiries),
       },
     };
   }

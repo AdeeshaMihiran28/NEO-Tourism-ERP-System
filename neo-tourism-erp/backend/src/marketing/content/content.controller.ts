@@ -25,7 +25,9 @@ import {
   CreateCommentDto,
   CreateContentDto,
   CreateVersionDto,
+  PublishPublicationDto,
   ReviewCommentDto,
+  SchedulePublicationDto,
   StageDto,
   UpdateContentDto,
 } from './dto/content.dto';
@@ -112,6 +114,36 @@ export class ContentController {
     @Req() req: Request,
   ) {
     return this.content.goLive(id, user.id, getRequestMetadata(req));
+  }
+  @Post('content/:id/publications')
+  @Permissions('marketing.calendar.create')
+  schedulePublication(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SchedulePublicationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.content.schedulePublication(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
+  @Post('publications/:id/publish')
+  @Permissions('marketing.content.publish')
+  publish(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: PublishPublicationDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.content.publishPublication(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
   }
   @Post('content/:id/comments')
   @Permissions('marketing.content.comment')

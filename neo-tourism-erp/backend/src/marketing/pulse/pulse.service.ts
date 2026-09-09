@@ -97,6 +97,12 @@ export class PulseService {
           result.salesSignals = x;
         }),
       );
+    if (can('marketing.neotrio.view'))
+      jobs.push(
+        this.neoTrio().then((x) => {
+          result.neoTrio = x;
+        }),
+      );
     await Promise.all(jobs);
     return result;
   }
@@ -420,6 +426,32 @@ export class PulseService {
         destination: x.destination,
         count: x._count._all,
       })),
+    };
+  }
+  private async neoTrio() {
+    const [ideas, productions, scheduled] = await Promise.all([
+      this.prisma.neoTrioIdea.count({
+        where: { status: { in: ['NEW', 'SHORTLISTED', 'ACCEPTED'] } },
+      }),
+      this.prisma.neoTrioProduction.groupBy({
+        by: ['stage'],
+        _count: { _all: true },
+      }),
+      this.prisma.neoTrioProduction.count({
+        where: {
+          plannedPublishAt: { not: null },
+          stage: { notIn: ['PUBLISHED', 'CANCELLED', 'ARCHIVED'] },
+        },
+      }),
+    ]);
+    const count = (stage: string) =>
+      productions.find((item) => item.stage === stage)?._count._all ?? 0;
+    return {
+      ideas,
+      inProduction: count('SCRIPT') + count('PRODUCTION'),
+      inReview: count('REVIEW'),
+      ready: count('READY'),
+      scheduled,
     };
   }
 }

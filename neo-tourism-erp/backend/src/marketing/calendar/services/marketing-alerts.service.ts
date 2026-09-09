@@ -11,6 +11,7 @@ type Alert = {
   severity: 'INFO' | 'WARNING' | 'URGENT';
   relatedEntityType: string | null;
   relatedEntityId: string | null;
+  href: string;
 };
 
 @Injectable()
@@ -70,6 +71,7 @@ export class MarketingAlertsService {
         severity: 'URGENT',
         relatedEntityType: 'MarketingDeal',
         relatedEntityId: deal.id,
+        href: `/marketing/deals/${deal.id}`,
       });
     const approvedReady = ready.filter((item) =>
       item.approvals.some(
@@ -84,6 +86,7 @@ export class MarketingAlertsService {
         severity: 'INFO',
         relatedEntityType: 'MarketingContent',
         relatedEntityId: null,
+        href: '/marketing/content',
       });
     for (const item of overdue)
       alerts.push({
@@ -93,6 +96,7 @@ export class MarketingAlertsService {
         severity: 'WARNING',
         relatedEntityType: 'MarketingContent',
         relatedEntityId: item.id,
+        href: `/marketing/content/${item.id}`,
       });
     for (const campaign of campaigns)
       alerts.push({
@@ -102,6 +106,7 @@ export class MarketingAlertsService {
         severity: 'INFO',
         relatedEntityType: 'MarketingCampaign',
         relatedEntityId: campaign.id,
+        href: `/marketing/campaigns/${campaign.id}`,
       });
     const requiredDays = (process.env.MARKETING_CONTENT_COVERAGE_DAYS ?? '')
       .split(',')
@@ -116,6 +121,7 @@ export class MarketingAlertsService {
         severity: 'WARNING',
         relatedEntityType: null,
         relatedEntityId: null,
+        href: '/marketing/calendar',
       });
     return alerts;
   }

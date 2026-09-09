@@ -16,5 +16,6 @@ import { SalesSignalsService } from './services/sales-signals.service';
     PulseWorkloadService,
     SalesSignalsService,
   ],
+  exports: [PulseCrmService],
 })
 export class PulseModule {}

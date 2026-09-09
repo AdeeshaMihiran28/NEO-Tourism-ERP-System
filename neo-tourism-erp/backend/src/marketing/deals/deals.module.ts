@@ -21,6 +21,11 @@ import { ContentService } from '../content/content.service';
     ContentService,
     ContentDeadlineScheduler,
   ],
-  exports: [DealsService, MarketingDealLifecycleService],
+  exports: [
+    DealsService,
+    MarketingDealLifecycleService,
+    CampaignsService,
+    ContentService,
+  ],
 })
 export class DealsModule {}

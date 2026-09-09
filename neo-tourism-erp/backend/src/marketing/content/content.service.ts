@@ -21,10 +21,13 @@ import {
   CreateCommentDto,
   CreateContentDto,
   CreateVersionDto,
+  PublishPublicationDto,
   ReviewCommentDto,
+  SchedulePublicationDto,
   StageDto,
   UpdateContentDto,
 } from './dto/content.dto';
+import { validateCreativeFileMetadata } from './content-file-metadata';
 
 const userSelect = { id: true, firstName: true, lastName: true } as const;
 const cardInclude = {
@@ -119,6 +122,11 @@ export class ContentService {
   }
 
   async create(dto: CreateContentDto, actorId: string, meta?: RequestMetadata) {
+    const links = await this.validateLinks(
+      dto.campaignId,
+      dto.dealId,
+      dto.assignedUserId,
+    );
     return this.prisma.$transaction(async (tx) => {
       const year = new Date().getUTCFullYear();
       const counter = await tx.marketingContentCounter.upsert({
@@ -133,7 +141,7 @@ export class ContentService {
           description: dto.description,
           contentType: dto.contentType,
           campaignId: dto.campaignId,
-          dealId: dto.dealId,
+          dealId: links.dealId,
           assignedUserId: dto.assignedUserId,
           ...(dto.deadline && { deadline: new Date(dto.deadline) }),
           priority: dto.priority,
@@ -223,10 +231,15 @@ export class ContentService {
       throw new ConflictException(
         'Archived or cancelled content cannot be edited.',
       );
+    const links = await this.validateLinks(
+      dto.campaignId ?? current.campaign?.id,
+      dto.dealId ?? current.deal?.id,
+    );
     const updated = await this.prisma.marketingContent.update({
       where: { id },
       data: {
         ...dto,
+        ...((dto.campaignId || dto.dealId) && { dealId: links.dealId }),
         ...(dto.deadline && { deadline: new Date(dto.deadline) }),
         updatedById: actorId,
       },
@@ -327,6 +340,7 @@ export class ContentService {
     actorId: string,
     meta?: RequestMetadata,
   ) {
+    validateCreativeFileMetadata(dto);
     if (
       ![dto.fileName, dto.storageKey, dto.caption, dto.copyText].some((value) =>
         value?.trim(),
@@ -359,6 +373,11 @@ export class ContentService {
           ...(wasApproved && { stage: 'CREATING', reviewRequired: true }),
         },
       });
+      if (wasApproved)
+        await tx.marketingPublication.updateMany({
+          where: { contentId: id, status: 'SCHEDULED' },
+          data: { status: 'REMOVED' },
+        });
       await this.audit.log(
         {
           actorUserId: actorId,
@@ -532,6 +551,14 @@ export class ContentService {
       'Creative approved',
       `${approval.content.contentCode} is READY.`,
     );
+    await this.syncNeoTrioApproval(
+      approval.contentId,
+      'READY',
+      actorId,
+      NotificationType.NEOTRIO_PRODUCTION_APPROVED,
+      'NeoTrio production approved',
+      meta,
+    );
     return updated;
   }
 
@@ -595,6 +622,142 @@ export class ContentService {
     );
   }
 
+  async schedulePublication(
+    id: string,
+    dto: SchedulePublicationDto,
+    actorId: string,
+    meta?: RequestMetadata,
+  ) {
+    const content = await this.requireContent(id);
+    if (
+      content.stage !== 'READY' ||
+      content.reviewRequired ||
+      !content.currentVersionId
+    )
+      throw new ConflictException('Only approved READY content can be scheduled.');
+    const scheduledAt = new Date(dto.scheduledAt);
+    if (scheduledAt <= new Date())
+      throw new BadRequestException('Publication time must be in the future.');
+    const [approved, existing] = await Promise.all([
+      this.prisma.marketingContentApproval.findFirst({
+        where: {
+          contentId: id,
+          contentVersionId: content.currentVersionId,
+          status: 'APPROVED',
+        },
+        select: { id: true },
+      }),
+      this.prisma.marketingPublication.findFirst({
+        where: {
+          contentId: id,
+          contentVersionId: content.currentVersionId,
+          channel: dto.channel,
+          status: { in: ['DRAFT', 'SCHEDULED'] },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!approved)
+      throw new ConflictException('The current content version is not approved.');
+    if (existing)
+      throw new ConflictException('This version is already scheduled for that channel.');
+    return this.prisma.$transaction(async (tx) => {
+      const publication = await tx.marketingPublication.create({
+        data: {
+          contentId: id,
+          contentVersionId: content.currentVersionId!,
+          channel: dto.channel,
+          status: 'SCHEDULED',
+          scheduledAt,
+        },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'MarketingPublication',
+          entityId: publication.id,
+          action: 'MARKETING_PUBLICATION_SCHEDULED',
+          newValues: {
+            contentId: id,
+            contentVersionId: content.currentVersionId,
+            channel: dto.channel,
+            scheduledAt,
+          },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+      return publication;
+    });
+  }
+
+  async publishPublication(
+    id: string,
+    dto: PublishPublicationDto,
+    actorId: string,
+    meta?: RequestMetadata,
+  ) {
+    const publication = await this.prisma.marketingPublication.findUnique({
+      where: { id },
+      include: { content: true },
+    });
+    if (!publication) throw new NotFoundException('Publication not found.');
+    if (publication.status !== 'SCHEDULED')
+      throw new ConflictException('Only scheduled publications can be confirmed published.');
+    if (publication.content.reviewRequired)
+      throw new ConflictException('This content requires approval again before publishing.');
+    if (publication.content.currentVersionId !== publication.contentVersionId)
+      throw new ConflictException('The scheduled version is no longer current.');
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.marketingPublication.updateMany({
+        where: { id, status: 'SCHEDULED' },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          externalReference: dto.externalReference,
+        },
+      });
+      if (!claimed.count)
+        throw new ConflictException('This publication has already been processed.');
+      const updated = await tx.marketingPublication.findUniqueOrThrow({
+        where: { id },
+      });
+      await tx.marketingContent.update({
+        where: { id: publication.contentId },
+        data: { stage: 'LIVE', updatedById: actorId },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'MarketingPublication',
+          entityId: id,
+          action: 'MARKETING_PUBLICATION_CONFIRMED',
+          oldValues: { status: publication.status },
+          newValues: {
+            status: updated.status,
+            publishedAt: updated.publishedAt,
+            externalReference: updated.externalReference,
+          },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'MarketingContent',
+          entityId: publication.contentId,
+          action: 'MARKETING_CONTENT_MARKED_LIVE',
+          oldValues: { stage: publication.content.stage },
+          newValues: { stage: 'LIVE', publicationId: id },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+      return updated;
+    });
+  }
+
   async comment(id: string, dto: CreateCommentDto, actorId: string) {
     await this.requireContent(id);
     return this.prisma.marketingContentComment.create({
@@ -654,6 +817,43 @@ export class ContentService {
           throw new NotFoundException('Creative approval not found.');
         return approval;
       });
+  }
+
+  private async validateLinks(
+    campaignId?: string,
+    dealId?: string,
+    assignedUserId?: string,
+  ) {
+    const [campaign, deal, assignee] = await Promise.all([
+      campaignId
+        ? this.prisma.marketingCampaign.findUnique({
+            where: { id: campaignId },
+            select: { dealId: true },
+          })
+        : null,
+      dealId
+        ? this.prisma.marketingDeal.findUnique({
+            where: { id: dealId },
+            select: { id: true },
+          })
+        : null,
+      assignedUserId
+        ? this.prisma.user.findFirst({
+            where: { id: assignedUserId, isActive: true },
+            select: { id: true },
+          })
+        : null,
+    ]);
+    if (campaignId && !campaign)
+      throw new NotFoundException('Marketing campaign not found.');
+    if (dealId && !deal) throw new NotFoundException('Marketing deal not found.');
+    if (assignedUserId && !assignee)
+      throw new NotFoundException('Active assignee not found.');
+    if (campaign?.dealId && dealId && campaign.dealId !== dealId)
+      throw new BadRequestException(
+        'Content deal must match the deal linked to its campaign.',
+      );
+    return { dealId: dealId ?? campaign?.dealId ?? undefined };
   }
 
   private async changeStage(
@@ -737,7 +937,75 @@ export class ContentService {
         : 'Creative changes requested',
       comment,
     );
+    if (status === 'CHANGES_REQUESTED')
+      await this.syncNeoTrioApproval(
+        approval.contentId,
+        'PRODUCTION',
+        actorId,
+        NotificationType.NEOTRIO_PRODUCTION_CHANGES_REQUESTED,
+        'NeoTrio production changes requested',
+        meta,
+      );
     return result;
+  }
+
+  private async syncNeoTrioApproval(
+    contentId: string,
+    stage: 'READY' | 'PRODUCTION',
+    actorId: string,
+    type: NotificationType,
+    title: string,
+    meta?: RequestMetadata,
+  ) {
+    const production = await this.prisma.neoTrioProduction.findUnique({
+      where: { marketingContentId: contentId },
+    });
+    if (!production || production.stage !== 'REVIEW') return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.neoTrioProduction.update({
+        where: { id: production.id },
+        data: { stage, updatedById: actorId },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'NeoTrioProduction',
+          entityId: production.id,
+          action: 'NEOTRIO_PRODUCTION_STAGE_CHANGED',
+          oldValues: { stage: 'REVIEW' },
+          newValues: { stage, source: 'NEO_GREENLIGHT' },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+    });
+    const recipients = new Set(
+      [production.createdById, production.assignedUserId].filter(
+        (id): id is string => Boolean(id),
+      ),
+    );
+    await Promise.all(
+      [...recipients].map(async (userId) => {
+        const existing = await this.prisma.notification.findFirst({
+          where: {
+            userId,
+            type,
+            entityType: 'NeoTrioProduction',
+            entityId: production.id,
+            isRead: false,
+          },
+        });
+        if (!existing)
+          await this.notifications.create({
+            userId,
+            type,
+            title,
+            message: `${production.productionCode}: ${production.title}`,
+            entityType: 'NeoTrioProduction',
+            entityId: production.id,
+          });
+      }),
+    );
   }
 
   private async notifyParticipants(

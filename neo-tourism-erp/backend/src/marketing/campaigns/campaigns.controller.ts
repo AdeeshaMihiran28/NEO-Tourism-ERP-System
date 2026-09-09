@@ -5,13 +5,16 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import type { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
+import { getRequestMetadata } from '../../common/request-metadata';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/campaign.dto';
 
@@ -30,7 +33,12 @@ export class CampaignsController {
   @Post() @Permissions('marketing.content.create') create(
     @Body() dto: CreateCampaignDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.campaigns.create(dto, user.id);
+    return this.campaigns.create(
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
   }
 }

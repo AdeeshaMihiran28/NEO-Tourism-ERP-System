@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -36,7 +37,7 @@ export class MarketingCalendarService {
     if (from > to)
       throw new ConflictException('dateFrom must be before dateTo.');
     const overlap = { lte: to };
-    const [manual, campaigns, deals, content, publications, external] =
+    const [manual, campaigns, deals, content, publications, external, neoTrio] =
       await Promise.all([
         this.prisma.marketingCalendarEntry.findMany({
           where: {
@@ -81,6 +82,15 @@ export class MarketingCalendarService {
             OR: [
               { scheduledAt: { gte: from, lte: to } },
               { publishedAt: { gte: from, lte: to } },
+            ],
+          },
+        }),
+        this.prisma.neoTrioProduction.findMany({
+          where: {
+            stage: { notIn: ['ARCHIVED', 'CANCELLED', 'PUBLISHED'] },
+            OR: [
+              { deadline: { gte: from, lte: to } },
+              { plannedPublishAt: { gte: from, lte: to } },
             ],
           },
         }),
@@ -229,6 +239,49 @@ export class MarketingCalendarService {
             ? ('VERIFIED' as const)
             : ('NOT_VERIFIED' as const),
       })),
+      ...neoTrio.flatMap((x) => {
+        const base = {
+          description: x.description,
+          entryType: EntryType.NEOTRIO,
+          endAt: null,
+          source: Source.INTERNAL,
+          channel: null,
+          campaignId: x.campaignId,
+          dealId: x.dealId,
+          contentId: x.marketingContentId,
+          publicationId: null,
+          assignedUserId: x.assignedUserId,
+          editable: false,
+          reschedulable: false,
+          href: `/marketing/neotrio/production`,
+        };
+        return [
+          ...(x.deadline
+            ? [
+                {
+                  ...base,
+                  id: `neotrio-deadline:${x.id}`,
+                  title: `${x.title} — NeoTrio production deadline`,
+                  startAt: x.deadline,
+                  allDay: true,
+                  status: Status.PLANNED,
+                },
+              ]
+            : []),
+          ...(x.plannedPublishAt
+            ? [
+                {
+                  ...base,
+                  id: `neotrio-publish:${x.id}`,
+                  title: `${x.title} — NeoTrio planned publication`,
+                  startAt: x.plannedPublishAt,
+                  allDay: false,
+                  status: x.stage === 'READY' ? Status.READY : Status.SCHEDULED,
+                },
+              ]
+            : []),
+        ];
+      }),
     ];
     return events
       .filter((event) => this.matches(event, query))
@@ -331,6 +384,8 @@ export class MarketingCalendarService {
   ) {
     const [kind, id] = calendarId.split(':');
     const startAt = new Date(dto.startAt);
+    if (startAt <= new Date())
+      throw new BadRequestException('The new schedule time must be in the future.');
     if (kind === 'publication') {
       const current = await this.prisma.marketingPublication.findUnique({
         where: { id },

@@ -763,6 +763,10 @@ export class DealsService {
             dealReviewReason: `Connected Deal changed: ${fields.join(', ')}.`,
           },
         });
+        await tx.marketingPublication.updateMany({
+          where: { contentId: content.id, status: 'SCHEDULED' },
+          data: { status: 'REMOVED' },
+        });
         await this.audit.log(
           {
             actorUserId: actorId,
