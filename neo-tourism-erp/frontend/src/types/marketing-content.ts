@@ -1,7 +1,92 @@
-export type ContentStage="IDEA"|"CREATING"|"REVIEW"|"READY"|"LIVE"|"ARCHIVED"|"CANCELLED";
-export type ContentCard={id:string;contentCode:string;title:string;description:string|null;contentType:string;stage:ContentStage;deadline:string|null;priority:string;reviewRequired:boolean;dealReviewReason:string|null;assignedUser:{id:string;firstName:string;lastName:string}|null;createdBy:{id:string;firstName:string;lastName:string};campaign:{id:string;campaignCode:string;name:string}|null;deal:{id:string;dealCode:string;title:string}|null;currentVersion:{id:string;versionNumber:number}|null};
-export type ContentBoard=Record<"IDEA"|"CREATING"|"REVIEW"|"READY"|"LIVE",ContentCard[]>;
-export type ContentVersion={id:string;versionNumber:number;fileName:string|null;fileType:string|null;storageKey:string|null;caption:string|null;copyText:string|null;notes:string|null;createdAt:string;createdBy:{firstName:string;lastName:string};approvals:Array<{id:string;status:string;comment:string|null;reviewedAt:string|null;reviewer:{firstName:string;lastName:string}|null}>};
-export type ContentDetail=ContentCard&{versions:ContentVersion[];approvals:Array<{id:string;status:string;comment:string|null;requestedAt:string;reviewedAt:string|null;contentVersion:ContentVersion;requestedBy:{firstName:string;lastName:string};reviewer:{firstName:string;lastName:string}|null}>;comments:Array<{id:string;comment:string;createdAt:string;user:{firstName:string;lastName:string}}>};
-export type ContentOptions={users:Array<{id:string;firstName:string;lastName:string}>;campaigns:Array<{id:string;campaignCode:string;name:string;dealId:string|null}>;deals:Array<{id:string;dealCode:string;title:string}>};
-export type ApprovalQueue={data:Array<{id:string;status:string;requestedAt:string;content:ContentCard;contentVersion:ContentVersion;requestedBy:{firstName:string;lastName:string};reviewer:{firstName:string;lastName:string}|null}>;pagination:{total:number}};
+export type ContentStage =
+  "IDEA" | "CREATING" | "REVIEW" | "READY" | "LIVE" | "ARCHIVED" | "CANCELLED";
+export type ContentCard = {
+  id: string;
+  contentCode: string;
+  title: string;
+  description: string | null;
+  contentType: string;
+  stage: ContentStage;
+  deadline: string | null;
+  priority: string;
+  reviewRequired: boolean;
+  dealReviewReason: string | null;
+  assignedUser: { id: string; firstName: string; lastName: string } | null;
+  createdBy: { id: string; firstName: string; lastName: string };
+  campaign: { id: string; campaignCode: string; name: string } | null;
+  deal: { id: string; dealCode: string; title: string } | null;
+  currentVersion: { id: string; versionNumber: number } | null;
+};
+export type ContentBoard = Record<
+  "IDEA" | "CREATING" | "REVIEW" | "READY" | "LIVE",
+  ContentCard[]
+>;
+export type ContentVersion = {
+  id: string;
+  versionNumber: number;
+  fileName: string | null;
+  fileType: string | null;
+  fileSize: number | null;
+  storageKey: string | null;
+  caption: string | null;
+  copyText: string | null;
+  notes: string | null;
+  createdAt: string;
+  createdBy: { firstName: string; lastName: string };
+  approvals: Array<{
+    id: string;
+    status: string;
+    comment: string | null;
+    reviewedAt: string | null;
+    reviewer: { firstName: string; lastName: string } | null;
+  }>;
+};
+export type ContentDetail = ContentCard & {
+  publications: Array<{
+    id: string;
+    channel: string;
+    status: string;
+    scheduledAt: string | null;
+    publishedAt: string | null;
+    externalReference: string | null;
+  }>;
+  versions: ContentVersion[];
+  approvals: Array<{
+    id: string;
+    status: string;
+    comment: string | null;
+    requestedAt: string;
+    reviewedAt: string | null;
+    contentVersion: ContentVersion;
+    requestedBy: { firstName: string; lastName: string };
+    reviewer: { firstName: string; lastName: string } | null;
+  }>;
+  comments: Array<{
+    id: string;
+    comment: string;
+    createdAt: string;
+    user: { firstName: string; lastName: string };
+  }>;
+};
+export type ContentOptions = {
+  users: Array<{ id: string; firstName: string; lastName: string }>;
+  campaigns: Array<{
+    id: string;
+    campaignCode: string;
+    name: string;
+    dealId: string | null;
+  }>;
+  deals: Array<{ id: string; dealCode: string; title: string }>;
+};
+export type ApprovalQueue = {
+  data: Array<{
+    id: string;
+    status: string;
+    requestedAt: string;
+    content: ContentCard;
+    contentVersion: ContentVersion;
+    requestedBy: { firstName: string; lastName: string };
+    reviewer: { firstName: string; lastName: string } | null;
+  }>;
+  pagination: { total: number };
+};

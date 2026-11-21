@@ -1,5 +1,11 @@
 export type CustomerType = "NEW" | "REPEAT" | "REFERRAL";
 
+export const customerTypeLabel: Record<CustomerType, string> = {
+  NEW: "New",
+  REPEAT: "Repeat",
+  REFERRAL: "Referral",
+};
+
 export interface CustomerListItem {
   id: string;
   firstName: string;
@@ -13,6 +19,10 @@ export interface CustomerListItem {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  totalInquiries: number;
+  totalBookings: number;
+  lastInquiryAt: string | null;
+  lastBookingAt: string | null;
 }
 
 export interface CustomerNote {
@@ -28,24 +38,57 @@ export interface CustomerNote {
   };
 }
 
-export interface CustomerDetail extends CustomerListItem {
+export interface CustomerDetail extends Omit<CustomerListItem, "totalInquiries" | "totalBookings" | "lastInquiryAt" | "lastBookingAt"> {
   createdBy: CustomerNote["createdBy"];
   updatedBy: CustomerNote["createdBy"];
-  notes: CustomerNote[];
+  leads: Array<{
+    id: string;
+    receivedAt: string | null;
+    createdAt: string;
+    destination: string | null;
+    travelDate: string | null;
+    travelEndDate: string | null;
+    source: string | null;
+    status: string;
+    lastMeaningfulActivityAt: string | null;
+    updatedAt: string;
+    assignedUser: CustomerNote["createdBy"] | null;
+  }>;
+  bookings: Array<{
+    id: string;
+    folderNumber: string;
+    destination: string;
+    travelStartDate: string;
+    travelEndDate: string | null;
+    createdAt: string;
+    travelStatus: string;
+    operationsStatus: string;
+    folderStatus: string;
+    salesAdvisor: CustomerNote["createdBy"];
+    references: Array<{ id: string; type: string; reference: string }>;
+  }>;
   summary: {
     totalLeads: number;
+    totalCompletedSales: number;
     totalBookings: number;
+    latestInquiryAt: string | null;
+    latestBookingAt: string | null;
+    lastActivityAt: string;
   };
+  leadPagination: Pagination;
+  bookingPagination: Pagination;
+}
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface CustomerListResponse {
   data: CustomerListItem[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
+  pagination: Pagination;
 }
 
 export interface DuplicateCustomer {
@@ -63,7 +106,7 @@ export interface CustomerInput {
   lastName: string;
   email?: string;
   phone?: string;
-  secondaryPhone?: string;
+  secondaryPhone?: string | null;
   dateOfBirth?: string;
   nationality?: string;
   customerType: CustomerType;

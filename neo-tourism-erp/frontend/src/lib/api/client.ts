@@ -9,6 +9,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly data: unknown,
     message: string,
+    public readonly requestId: string | null = null,
   ) {
     super(message);
   }
@@ -35,7 +36,11 @@ export async function apiFetch<T>(
   const { token = getStoredToken(), headers: customHeaders, ...request } = options;
   const headers = new Headers(customHeaders);
 
-  if (request.body && !headers.has("Content-Type")) {
+  if (
+    request.body &&
+    !(request.body instanceof FormData) &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {
@@ -57,15 +62,44 @@ export async function apiFetch<T>(
       }
     }
 
-    const message =
-      typeof data === "object" &&
-      data !== null &&
-      "message" in data &&
-      typeof data.message === "string"
+    const responseMessage =
+      typeof data === "object" && data !== null && "message" in data
         ? data.message
-        : `Request failed with status ${response.status}.`;
-    throw new ApiError(response.status, data, message);
+        : null;
+    const message =
+      typeof responseMessage === "string"
+        ? response.status === 403 && responseMessage === "Forbidden resource"
+          ? "You do not have permission to access this area."
+          : responseMessage
+        : Array.isArray(responseMessage) &&
+            responseMessage.every((item) => typeof item === "string")
+          ? responseMessage.join(" ")
+          : `Request failed with status ${response.status}.`;
+    const requestId = response.headers.get("X-Request-ID");
+    throw new ApiError(
+      response.status,
+      data,
+      requestId ? `${message} Reference: ${requestId}` : message,
+      requestId,
+    );
   }
 
   return data as T;
+}
+
+export async function apiDownload(path: string): Promise<Blob> {
+  const token = getStoredToken();
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => null);
+    const message =
+      typeof data === "object" && data !== null && "message" in data
+        ? String(data.message)
+        : `Download failed with status ${response.status}.`;
+    throw new ApiError(response.status, data, message, response.headers.get("X-Request-ID"));
+  }
+  return response.blob();
 }
