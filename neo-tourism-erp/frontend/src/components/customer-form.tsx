@@ -1,13 +1,14 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import type { CustomerInput, CustomerType } from "@/types/customer";
+import { customerTypeLabel, type CustomerInput, type CustomerType } from "@/types/customer";
 
 interface CustomerFormProps {
   initialValue?: Partial<CustomerInput>;
   submitting: boolean;
   submitLabel: string;
   showStatus?: boolean;
+  canEditPrimaryContact?: boolean;
   onSubmit: (value: CustomerInput) => Promise<void>;
 }
 
@@ -19,6 +20,7 @@ export function CustomerForm({
   submitting,
   submitLabel,
   showStatus = false,
+  canEditPrimaryContact = true,
   onSubmit,
 }: CustomerFormProps) {
   const [value, setValue] = useState<CustomerInput>({
@@ -42,13 +44,15 @@ export function CustomerForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const { isActive, ...customerDetails } = value;
     await onSubmit({
-      ...value,
+      ...customerDetails,
+      ...(showStatus ? { isActive } : {}),
       firstName: value.firstName.trim(),
       lastName: value.lastName.trim(),
       email: value.email?.trim() || undefined,
       phone: value.phone?.trim() || undefined,
-      secondaryPhone: value.secondaryPhone?.trim() || undefined,
+      secondaryPhone: value.secondaryPhone?.trim() || (initialValue ? null : undefined),
       dateOfBirth: value.dateOfBirth || undefined,
       nationality: value.nationality?.trim() || undefined,
     });
@@ -65,16 +69,21 @@ export function CustomerForm({
         <input required maxLength={100} value={value.lastName} onChange={(event) => setField("lastName", event.target.value)} className={inputClass} />
       </label>
       <label className="text-sm font-medium text-slate-700">
-        Email
-        <input type="email" maxLength={254} value={value.email} onChange={(event) => setField("email", event.target.value)} className={inputClass} />
+        Primary Email
+        <input disabled={!canEditPrimaryContact} type="email" maxLength={254} value={value.email} onChange={(event) => setField("email", event.target.value)} className={`${inputClass} disabled:bg-slate-100`} />
       </label>
       <label className="text-sm font-medium text-slate-700">
-        Phone
-        <input type="tel" pattern="[+0-9()\-\s]{7,25}" value={value.phone} onChange={(event) => setField("phone", event.target.value)} className={inputClass} />
+        Primary Phone
+        <input disabled={!canEditPrimaryContact} type="tel" pattern="[+0-9()\-\s]{7,25}" value={value.phone} onChange={(event) => setField("phone", event.target.value)} className={`${inputClass} disabled:bg-slate-100`} />
       </label>
+      {!canEditPrimaryContact && (
+        <p className="text-xs text-slate-500 sm:col-span-2">
+          Primary contact information can only be updated by an authorized administrator.
+        </p>
+      )}
       <label className="text-sm font-medium text-slate-700">
-        Secondary Phone
-        <input type="tel" pattern="[+0-9()\-\s]{7,25}" value={value.secondaryPhone} onChange={(event) => setField("secondaryPhone", event.target.value)} className={inputClass} />
+        Additional Phone Number
+        <input type="tel" pattern="[+0-9()\-\s]{7,25}" value={value.secondaryPhone ?? ""} onChange={(event) => setField("secondaryPhone", event.target.value)} className={inputClass} />
       </label>
       <label className="text-sm font-medium text-slate-700">
         Date of Birth
@@ -87,9 +96,7 @@ export function CustomerForm({
       <label className="text-sm font-medium text-slate-700">
         Customer Type
         <select value={value.customerType} onChange={(event) => setField("customerType", event.target.value as CustomerType)} className={inputClass}>
-          <option value="NEW">New</option>
-          <option value="REPEAT">Repeat</option>
-          <option value="REFERRAL">Referral</option>
+          {(Object.keys(customerTypeLabel) as CustomerType[]).map((type) => <option key={type} value={type}>{customerTypeLabel[type]}</option>)}
         </select>
       </label>
       {showStatus && (

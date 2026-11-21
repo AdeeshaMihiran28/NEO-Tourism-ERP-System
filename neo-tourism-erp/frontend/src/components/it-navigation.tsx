@@ -19,6 +19,7 @@ const links = [
   ],
   ["User Accounts", "/it/users", ["user.view"]],
   ["Roles & Permissions", "/it/roles", ["role.view"]],
+  ["Position Access", "/it/positions", ["role.view"]],
 ] as const;
 
 export function ItNavigation() {

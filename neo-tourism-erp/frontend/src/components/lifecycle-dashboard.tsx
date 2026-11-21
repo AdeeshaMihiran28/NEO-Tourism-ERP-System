@@ -31,7 +31,7 @@ export function LifecycleDashboard() {
     ["Operations Pending", data.operationsPending],
     ["Open Folders", data.openFolders],
     ["Closed Folders", data.closedFolders],
-    ["Travel Complete / Accounts Pending", data.travelCompleteAccountsPending],
+    ["Travel Complete / Finance Pending", data.travelCompleteAccountsPending],
   ] as const;
   return (
     <section className="mt-8">

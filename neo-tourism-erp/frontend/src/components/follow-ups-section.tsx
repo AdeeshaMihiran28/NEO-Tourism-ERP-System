@@ -30,6 +30,7 @@ export function FollowUpsSection({
   const { hasPermission } = useAuth();
   const [items, setItems] = useState<FollowUp[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<FollowUp | null>(null);
   const [type, setType] = useState<FollowUpType>("CALLBACK");
   const [scheduledAt, setScheduledAt] = useState("");
   const [note, setNote] = useState("");
@@ -50,6 +51,19 @@ export function FollowUpsSection({
     void Promise.resolve().then(load);
   }, [load]);
 
+  function openForm(followUp?: FollowUp) {
+    setEditing(followUp ?? null);
+    setType(followUp?.type ?? "CALLBACK");
+    setNote(followUp?.note ?? "");
+    if (followUp) {
+      const value = new Date(followUp.scheduledAt);
+      setScheduledAt(new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+    } else {
+      setScheduledAt("");
+    }
+    setShowForm(true);
+  }
+
   async function schedule(event: FormEvent) {
     event.preventDefault();
     const date = new Date(scheduledAt);
@@ -63,8 +77,9 @@ export function FollowUpsSection({
     }
     setSaving(true);
     try {
-      await apiFetch(`/leads/${leadId}/follow-ups`, {
-        method: "POST",
+      const editingScheduled = editing?.status === "SCHEDULED";
+      await apiFetch(editingScheduled ? `/follow-ups/${editing.id}` : `/leads/${leadId}/follow-ups`, {
+        method: editingScheduled ? "PATCH" : "POST",
         body: JSON.stringify({
           type,
           scheduledAt: date.toISOString(),
@@ -72,6 +87,7 @@ export function FollowUpsSection({
         }),
       });
       setShowForm(false);
+      setEditing(null);
       setScheduledAt("");
       setNote("");
       await load();
@@ -113,7 +129,7 @@ export function FollowUpsSection({
           <h2 className="mt-1 text-lg font-semibold text-slate-950">Scheduled customer contact</h2>
         </div>
         {hasPermission("followup.create") && (
-          <button type="button" onClick={() => setShowForm(true)} className="rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-800">
+          <button type="button" onClick={() => openForm()} className="rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-800">
             Schedule Follow-Up
           </button>
         )}
@@ -131,16 +147,17 @@ export function FollowUpsSection({
                 {entries.map((followUp) => (
                   <article key={followUp.id} className={`p-4 ${followUp.status === "MISSED" ? "bg-rose-50/60" : ""}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div><p className="font-semibold text-slate-950">{typeLabels[followUp.type]}</p><p className="mt-1 text-sm text-slate-600">{followUp.note}</p><p className="mt-2 text-xs text-slate-500">Created by {followUp.createdBy.firstName} {followUp.createdBy.lastName}</p></div>
+                      <div><p className="font-semibold text-slate-950">{typeLabels[followUp.type]}</p><p className="mt-1 text-sm text-slate-600">{followUp.note}</p><p className="mt-2 text-xs text-slate-500">Assigned to {followUp.assignedUser.firstName} {followUp.assignedUser.lastName} · Created by {followUp.createdBy.firstName} {followUp.createdBy.lastName}</p></div>
                       <div className="text-right"><time className="text-sm font-semibold text-slate-800">{new Date(followUp.scheduledAt).toLocaleString("en-GB")}</time><p className="mt-1 text-xs font-bold text-slate-500">{followUp.status}</p></div>
                     </div>
                     {followUp.status === "SCHEDULED" && (
                       <div className="mt-3 flex gap-3 text-xs font-semibold">
                         {hasPermission("followup.complete") && <button disabled={saving} type="button" onClick={() => void action(followUp.id, "complete")} className="text-emerald-700">Complete</button>}
+                        {hasPermission("followup.edit") && <button disabled={saving} type="button" onClick={() => openForm(followUp)} className="text-cyan-700">Reschedule</button>}
                         {hasPermission("followup.edit") && <button disabled={saving} type="button" onClick={() => void action(followUp.id, "cancel")} className="text-rose-700">Cancel</button>}
                       </div>
                     )}
-                    {followUp.status === "MISSED" && hasPermission("followup.complete") && <button disabled={saving} type="button" onClick={() => void action(followUp.id, "complete")} className="mt-3 text-xs font-semibold text-emerald-700">Complete now</button>}
+                    {followUp.status === "MISSED" && <div className="mt-3 flex gap-3 text-xs font-semibold">{hasPermission("followup.complete") && <button disabled={saving} type="button" onClick={() => void action(followUp.id, "complete")} className="text-emerald-700">Complete now</button>}{hasPermission("followup.create") && <button disabled={saving} type="button" onClick={() => openForm(followUp)} className="text-cyan-700">Reschedule</button>}</div>}
                   </article>
                 ))}
                 {entries.length === 0 && <p className="p-4 text-sm text-slate-500">No {group.label.toLowerCase()} follow-ups.</p>}
@@ -153,13 +170,13 @@ export function FollowUpsSection({
       {showForm && (
         <div role="dialog" aria-modal="true" aria-labelledby="schedule-follow-up-title" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4">
           <form onSubmit={schedule} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
-            <h2 id="schedule-follow-up-title" className="text-xl font-semibold text-slate-950">Schedule Callback</h2>
+            <h2 id="schedule-follow-up-title" className="text-xl font-semibold text-slate-950">{editing ? "Reschedule Follow-Up" : "Schedule Follow-Up"}</h2>
             <div className="mt-5 space-y-4">
               <label className="block text-sm font-medium text-slate-700">Type<select value={type} onChange={(event) => setType(event.target.value as FollowUpType)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5">{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="block text-sm font-medium text-slate-700">Date and time<input required type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5" /></label>
               <label className="block text-sm font-medium text-slate-700">Note<textarea required minLength={1} maxLength={2000} rows={4} value={note} onChange={(event) => setNote(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5" /></label>
             </div>
-            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} className="rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Scheduling…" : "Schedule"}</button></div>
+            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} className="rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : editing ? "Reschedule" : "Schedule"}</button></div>
           </form>
         </div>
       )}

@@ -4,31 +4,29 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { DepositRequestSection } from "@/components/deposit-request-section";
+import { SalePaymentsSection } from "@/components/sale-payments-section";
+import { SaleProductsSection } from "@/components/sale-products-section";
 import { ApiError, apiFetch } from "@/lib/api/client";
 import {
   saleStatusLabel,
-  type PaymentMethod,
+  type BookingPaymentType,
   type SaleSubmission,
 } from "@/types/sale";
-
-const paymentMethods: PaymentMethod[] = [
-  "BANK_TRANSFER",
-  "CARD",
-  "CASH",
-  "WISE",
-  "OTHER",
-];
 
 interface FormFields {
   destination: string;
   travelStartDate: string;
   travelEndDate: string;
   sellingPrice: string;
-  depositAmount: string;
+  estimatedCostOfSale: string;
   currency: string;
-  paymentMethod: "" | PaymentMethod;
-  paymentReference: string;
+  paymentType: "" | BookingPaymentType;
+  initialPaymentAmount: string;
+  finalBalancePaymentDate: string;
+  paymentArrangementNotes: string;
   salesNotes: string;
+  passengerInformation: string;
 }
 
 function fieldsFromSubmission(item: SaleSubmission): FormFields {
@@ -37,11 +35,14 @@ function fieldsFromSubmission(item: SaleSubmission): FormFields {
     travelStartDate: item.travelStartDate?.slice(0, 10) ?? "",
     travelEndDate: item.travelEndDate?.slice(0, 10) ?? "",
     sellingPrice: item.sellingPrice ?? "",
-    depositAmount: item.depositAmount ?? "",
+    estimatedCostOfSale: item.estimatedCostOfSale ?? "",
     currency: item.currency ?? "GBP",
-    paymentMethod: item.paymentMethod ?? "",
-    paymentReference: item.paymentReference ?? "",
+    paymentType: item.paymentType ?? "",
+    initialPaymentAmount: item.initialPaymentAmount ?? "",
+    finalBalancePaymentDate: item.finalBalancePaymentDate?.slice(0, 10) ?? "",
+    paymentArrangementNotes: item.paymentArrangementNotes ?? "",
     salesNotes: item.salesNotes ?? "",
+    passengerInformation: item.passengerInformation ?? "",
   };
 }
 
@@ -85,8 +86,9 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
         body: JSON.stringify({
           ...fields,
           travelEndDate: fields.travelEndDate || undefined,
-          depositAmount: fields.depositAmount || undefined,
-          paymentMethod: fields.paymentMethod || undefined,
+          paymentType: fields.paymentType || undefined,
+          initialPaymentAmount: fields.initialPaymentAmount || undefined,
+          finalBalancePaymentDate: fields.finalBalancePaymentDate || undefined,
         }),
       });
       setMessage("Payment Card draft saved.");
@@ -101,6 +103,7 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
   }
 
   async function submitToAdmin() {
+    if (!window.confirm("Submit this Payment Card to Admin? It will become read-only.")) return;
     const saved = await saveDraft();
     if (!saved) return;
     setSaving(true);
@@ -118,6 +121,7 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
   }
 
   async function acceptSale() {
+    if (!window.confirm("Accept this sale and make it ready for Booking creation?")) return;
     setSaving(true);
     setError("");
     try {
@@ -127,6 +131,22 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
       window.dispatchEvent(new Event("neo-notifications-changed"));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Unable to accept sale.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createBooking() {
+    if (!window.confirm("Create the Booking folder from this accepted sale?")) return;
+    setSaving(true);
+    setError("");
+    try {
+      const booking = await apiFetch<{ id: string; folderNumber: string }>(`/sale-submissions/${id}/create-booking`, { method: "POST" });
+      setMessage(`Folder Created Successfully — ${booking.folderNumber}`);
+      await load();
+      window.dispatchEvent(new Event("neo-notifications-changed"));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Unable to create booking folder.");
     } finally {
       setSaving(false);
     }
@@ -146,7 +166,7 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
         <span className="rounded-full bg-cyan-50 px-3 py-1.5 text-sm font-bold text-cyan-800">{saleStatusLabel(submission.status)}</span>
       </header>
 
-      {submission.status === "ADMIN_ACCEPTED" && <div className="mt-5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">Accepted — Ready for Folder / Booking Creation</div>}
+      {submission.status === "ADMIN_ACCEPTED" && <div className="mt-5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">{submission.booking ? <>Folder Created Successfully — {submission.booking.folderNumber} · <Link href={`/bookings/${submission.booking.id}`} className="underline">Open Booking</Link></> : "Accepted — Ready for Folder / Booking Creation"}</div>}
       {message && <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{message}</div>}
       {error && <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
 
@@ -166,17 +186,26 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
               <label className="text-sm font-medium text-slate-700 sm:col-span-2">Destination / Product<input required value={fields.destination} onChange={(event) => setFields({ ...fields, destination: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
               <label className="text-sm font-medium text-slate-700">Travel Start<input required type="date" value={fields.travelStartDate} onChange={(event) => setFields({ ...fields, travelStartDate: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
               <label className="text-sm font-medium text-slate-700">Travel End<input type="date" min={fields.travelStartDate} value={fields.travelEndDate} onChange={(event) => setFields({ ...fields, travelEndDate: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Passenger information<textarea rows={4} value={fields.passengerInformation} onChange={(event) => setFields({ ...fields, passengerInformation: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
             </div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-950">Payment</h2>
+            <h2 className="text-lg font-semibold text-slate-950">Revenue and Estimated Cost of Sale</h2>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-medium text-slate-700">Selling Price<input required type="number" min="0" step="0.01" value={fields.sellingPrice} onChange={(event) => setFields({ ...fields, sellingPrice: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
-              <label className="text-sm font-medium text-slate-700">Deposit Amount<input type="number" min="0" step="0.01" value={fields.depositAmount} onChange={(event) => setFields({ ...fields, depositAmount: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+              <label className="text-sm font-medium text-slate-700">Revenue<input required type="number" min="0" step="0.01" value={fields.sellingPrice} onChange={(event) => setFields({ ...fields, sellingPrice: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+              <label className="text-sm font-medium text-slate-700">Estimated Cost of Sale<input required type="number" min="0" step="0.01" value={fields.estimatedCostOfSale} onChange={(event) => setFields({ ...fields, estimatedCostOfSale: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
               <label className="text-sm font-medium text-slate-700">Currency<input required maxLength={3} value={fields.currency} onChange={(event) => setFields({ ...fields, currency: event.target.value.toUpperCase() })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 uppercase disabled:bg-slate-50" /></label>
-              <label className="text-sm font-medium text-slate-700">Payment Method<select required value={fields.paymentMethod} onChange={(event) => setFields({ ...fields, paymentMethod: event.target.value as FormFields["paymentMethod"] })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50"><option value="">Select method</option>{paymentMethods.map((method) => <option key={method} value={method}>{method.replaceAll("_", " ")}</option>)}</select></label>
-              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Payment Reference<input value={fields.paymentReference} onChange={(event) => setFields({ ...fields, paymentReference: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-950">Payment Arrangement</h2>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-medium text-slate-700">Payment type<select required value={fields.paymentType} onChange={(event) => setFields({ ...fields, paymentType: event.target.value as FormFields["paymentType"] })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50"><option value="">Select payment type</option><option value="FULL_PAYMENT">Full Payment</option><option value="DEPOSIT">Deposit</option><option value="INTERNAL_DEPOSIT">Internal Deposit</option></select></label>
+              <label className="text-sm font-medium text-slate-700">Initial payment amount<input type="number" min="0" step="0.01" value={fields.initialPaymentAmount} onChange={(event) => setFields({ ...fields, initialPaymentAmount: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+              <label className="text-sm font-medium text-slate-700">Final balance payment date<input type="date" value={fields.finalBalancePaymentDate} onChange={(event) => setFields({ ...fields, finalBalancePaymentDate: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
+              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Payment arrangement notes<textarea rows={3} value={fields.paymentArrangementNotes} onChange={(event) => setFields({ ...fields, paymentArrangementNotes: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 disabled:bg-slate-50" /></label>
             </div>
           </section>
 
@@ -185,9 +214,23 @@ export function SaleSubmissionCard({ id, adminMode = false }: { id: string; admi
           </section>
         </fieldset>
 
-        {canEdit && <div className="flex flex-wrap justify-end gap-3"><button type="submit" disabled={saving} className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50">Save Draft</button>{hasPermission("sale.submit") && <button type="button" onClick={() => void submitToAdmin()} disabled={saving} className="rounded-xl bg-cyan-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Submit to Admin</button>}</div>}
-        {adminMode && submission.status === "SUBMITTED_TO_ADMIN" && hasPermission("admin.sale.accept") && <div className="flex justify-end"><button type="button" onClick={() => void acceptSale()} disabled={saving} className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Accept Sale</button></div>}
       </form>
+
+      <div className="mt-6">
+        <SaleProductsSection submissionId={submission.id} products={submission.products} currency={fields.currency || "—"} canEdit={Boolean(canEdit)} onReload={load} />
+      </div>
+
+      <div className="mt-6">
+        <SalePaymentsSection submissionId={submission.id} sellingPrice={fields.sellingPrice || null} initialPaymentAmount={fields.initialPaymentAmount || null} currency={fields.currency || "—"} payments={submission.paymentEntries} installments={submission.installments} canEdit={Boolean(canEdit)} onReload={load} />
+      </div>
+
+      <div className="mt-6">
+        <DepositRequestSection submission={submission} />
+      </div>
+
+      {canEdit && <div className="mt-6 flex flex-wrap justify-end gap-3"><button type="button" onClick={() => void saveDraft()} disabled={saving} className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50">Save Draft</button>{hasPermission("sale.submit") && <button type="button" onClick={() => void submitToAdmin()} disabled={saving} className="rounded-xl bg-cyan-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Submit to Admin</button>}</div>}
+      {adminMode && submission.status === "SUBMITTED_TO_ADMIN" && hasPermission("admin.sale.accept") && <div className="mt-6 flex justify-end"><button type="button" onClick={() => void acceptSale()} disabled={saving} className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Accept Sale</button></div>}
+      {adminMode && submission.status === "ADMIN_ACCEPTED" && !submission.booking && hasPermission("booking.create") && <div className="mt-6 flex justify-end"><button type="button" onClick={() => void createBooking()} disabled={saving} className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Create Booking / Folder</button></div>}
     </div>
   );
 }

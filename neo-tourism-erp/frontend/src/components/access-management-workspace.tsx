@@ -6,24 +6,15 @@ import { useAuth } from "./auth-provider";
 import { ItNavigation } from "./it-navigation";
 import { StatusBadge } from "./status-badge";
 
-type EmployeeOption = {
-  id: string;
-  userId: string | null;
-  employeeNumber: string;
-  firstName: string;
-  lastName: string;
-  workEmail: string | null;
-  departmentId: string;
-  organizationLevel: string;
-  employmentStatus: string;
-};
 type Role = { id: string; name: string; description: string | null };
+type Department = { id: string; name: string };
 type User = {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
   isActive: boolean;
+  accountState: "PENDING_ACTIVATION" | "ACTIVE" | "DISABLED";
   createdAt: string;
   updatedAt: string;
   accessMismatch: boolean;
@@ -38,15 +29,21 @@ type User = {
     department: { name: string };
   } | null;
   roles: string[];
+  rolesDetailed?: Array<{ name: string; source: string }>;
   permissions: string[];
 };
-type Options = { employees: EmployeeOption[]; roles: Role[] };
+type Options = {
+  roles: Role[];
+  departments: Department[];
+};
 
 export function AccessManagementWorkspace() {
   const { hasPermission } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
-  const [options, setOptions] = useState<Options>({ employees: [], roles: [] });
-  const [employeeId, setEmployeeId] = useState("");
+  const [options, setOptions] = useState<Options>({
+    roles: [],
+    departments: [],
+  });
   const [managingId, setManagingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -82,8 +79,6 @@ export function AccessManagementWorkspace() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const employee = options.employees.find((item) => item.id === employeeId);
-    if (!employee) return;
     const form = new FormData(event.currentTarget);
     const roleIds = form.getAll("roleIds").map(String);
     if (!roleIds.length) return setError("Select at least one role.");
@@ -91,19 +86,17 @@ export function AccessManagementWorkspace() {
       await apiFetch("/users", {
         method: "POST",
         body: JSON.stringify({
-          employeeId,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          departmentId: employee.departmentId,
+          firstName: form.get("firstName"),
+          lastName: form.get("lastName"),
+          departmentId: form.get("departmentId"),
           email: form.get("email"),
           password: form.get("password"),
           roleIds,
         }),
       });
       event.currentTarget.reset();
-      setEmployeeId("");
       setError("");
-      setMessage("ERP account created and linked to the employee.");
+      setMessage("Technical ERP account created.");
       await load();
     } catch (caught) {
       showError(caught);
@@ -123,9 +116,6 @@ export function AccessManagementWorkspace() {
     }
   }
 
-  const selectedEmployee = options.employees.find(
-    (item) => item.id === employeeId,
-  );
   const canAssign = (item: Role) => {
     if (["SUPER_ADMIN", "SYSTEM_ADMIN", "FINANCE_APPROVER"].includes(item.name))
       return hasPermission("user.manage_privileged_roles");
@@ -147,7 +137,7 @@ export function AccessManagementWorkspace() {
             user.lastName,
             user.employee?.employeeNumber,
           ].some((value) => value?.toLowerCase().includes(term))) &&
-        (!status || (user.isActive ? "ACTIVE" : "DISABLED") === status) &&
+        (!status || user.accountState === status) &&
         (!role || user.roles.includes(role)) &&
         (!issuesOnly || user.accessMismatch),
     );
@@ -189,33 +179,25 @@ export function AccessManagementWorkspace() {
       {hasPermission("user.create") && canManageRoles && (
         <details className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <summary className="cursor-pointer font-semibold">
-            Create ERP login
+            Create technical or service account
           </summary>
           <form onSubmit={create} className="mt-5 grid gap-4 lg:grid-cols-3">
-            <select
+            <input
               required
-              value={employeeId}
-              onChange={(event) => setEmployeeId(event.target.value)}
+              name="firstName"
+              placeholder="First name"
               className="rounded-xl border border-slate-300 p-3"
-            >
-              <option value="">Select existing employee</option>
-              {options.employees
-                .filter(
-                  (item) => !item.userId && item.employmentStatus === "ACTIVE",
-                )
-                .map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.employeeNumber} — {employee.firstName}{" "}
-                    {employee.lastName}
-                  </option>
-                ))}
-            </select>
+            />
+            <input
+              required
+              name="lastName"
+              placeholder="Last name"
+              className="rounded-xl border border-slate-300 p-3"
+            />
             <input
               required
               name="email"
               type="email"
-              defaultValue={selectedEmployee?.workEmail ?? ""}
-              key={selectedEmployee?.id}
               placeholder="Login email"
               className="rounded-xl border border-slate-300 p-3"
             />
@@ -229,13 +211,28 @@ export function AccessManagementWorkspace() {
               placeholder="Temporary password"
               className="rounded-xl border border-slate-300 p-3"
             />
+            <select
+              required
+              name="departmentId"
+              defaultValue=""
+              className="rounded-xl border border-slate-300 p-3"
+            >
+              <option value="" disabled>
+                Select department
+              </option>
+              {options.departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
             <RoleChoices
               roles={options.roles}
               selected={[]}
               canAssign={canAssign}
             />
             <button className="rounded-xl bg-violet-700 px-5 py-3 font-semibold text-white lg:col-span-3">
-              Create ERP account
+              Create technical account
             </button>
           </form>
         </details>
@@ -255,6 +252,7 @@ export function AccessManagementWorkspace() {
         >
           <option value="">All account statuses</option>
           <option>ACTIVE</option>
+          <option value="PENDING_ACTIVATION">PENDING ACTIVATION</option>
           <option>DISABLED</option>
         </select>
         <label className="flex items-center gap-2 rounded-xl border p-3 text-sm font-medium">
@@ -340,6 +338,11 @@ function UserRows({
   request: (path: string, body: object, success: string) => Promise<boolean>;
 }) {
   const mismatch = user.accessMismatch;
+  const [invitationLink, setInvitationLink] = useState("");
+  const [invitationStatus, setInvitationStatus] = useState<
+    "SENT" | "FAILED" | "NOT_CONFIGURED" | null
+  >(null);
+  const [invitationError, setInvitationError] = useState("");
   return (
     <>
       <tr>
@@ -359,14 +362,30 @@ function UserRows({
         <td>{user.email}</td>
         <td className="max-w-64">
           <span className="flex flex-wrap gap-1">
-            {user.roles.map((name) => (
-              <span
-                key={name}
-                className="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700"
-              >
-                {name.replaceAll("_", " ")}
-              </span>
-            ))}
+            {user.roles.map((name) => {
+              const source = user.rolesDetailed?.find(
+                (role) => role.name === name,
+              )?.source;
+              const auto = source === "POSITION_AUTO";
+              return (
+                <span
+                  key={name}
+                  title={
+                    auto
+                      ? "Automatic from position mapping"
+                      : "Manually assigned"
+                  }
+                  className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                    auto
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-violet-50 text-violet-700"
+                  }`}
+                >
+                  {name.replaceAll("_", " ")}
+                  {auto ? " · auto" : ""}
+                </span>
+              );
+            })}
           </span>
         </td>
         <td>
@@ -375,7 +394,7 @@ function UserRows({
           />
         </td>
         <td>
-          <StatusBadge status={user.isActive ? "ACTIVE" : "DISABLED"} />
+          <StatusBadge status={user.accountState} />
           {mismatch && (
             <p className="mt-1 max-w-48 text-xs font-semibold text-red-700">
               Employee inactive — ERP access still enabled
@@ -434,7 +453,7 @@ function UserRows({
                     </button>
                   </form>
                 )}
-                {canEdit && (
+                {canEdit && user.accountState !== "PENDING_ACTIVATION" && (
                   <button
                     type="button"
                     onClick={() => {
@@ -456,9 +475,85 @@ function UserRows({
                     {user.isActive ? "Disable ERP access" : "Enable ERP access"}
                   </button>
                 )}
+                {canEdit && user.accountState === "PENDING_ACTIVATION" && (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInvitationError("");
+                        setInvitationStatus(null);
+                        setInvitationLink("");
+                        void apiFetch<{
+                          delivery: "SENT" | "FAILED" | "NOT_CONFIGURED";
+                          invitationLink?: string;
+                        }>(`/users/${user.id}/resend-invitation`, {
+                          method: "POST",
+                        })
+                          .then((result) => {
+                            setInvitationStatus(result.delivery);
+                            if (result.invitationLink)
+                              setInvitationLink(result.invitationLink);
+                          })
+                          .catch((caught: unknown) =>
+                            setInvitationError(
+                              caught instanceof ApiError
+                                ? caught.message
+                                : "Unable to regenerate invitation.",
+                            ),
+                          );
+                      }}
+                      className="rounded-lg bg-cyan-700 px-4 py-2 font-semibold text-white"
+                    >
+                      Resend invitation
+                    </button>
+                    {invitationStatus === "SENT" && (
+                      <p className="mt-2 text-sm font-semibold text-emerald-700">
+                        Invitation sent.
+                      </p>
+                    )}
+                    {invitationStatus === "FAILED" && (
+                      <p className="mt-2 text-sm font-semibold text-amber-700">
+                        Email delivery failed. The invitation is still pending
+                        — try again in a minute.
+                      </p>
+                    )}
+                    {invitationStatus === "NOT_CONFIGURED" && (
+                      <p className="mt-2 text-sm font-semibold text-amber-700">
+                        Email is not configured. Contact IT to configure ERP
+                        email delivery.
+                      </p>
+                    )}
+                    {invitationLink && (
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          readOnly
+                          value={invitationLink}
+                          placeholder="Development debug link"
+                          className="min-w-0 flex-1 rounded-lg border p-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void navigator.clipboard.writeText(invitationLink)
+                          }
+                          className="rounded-lg border px-3 font-semibold"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    )}
+                    {invitationError && (
+                      <p className="mt-2 text-sm text-red-700">
+                        {invitationError}
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
 
-              {canEdit && <PasswordReset user={user} request={request} />}
+              {canEdit && user.accountState !== "PENDING_ACTIVATION" && (
+                <PasswordReset user={user} request={request} />
+              )}
             </div>
 
             {canManageRoles && (

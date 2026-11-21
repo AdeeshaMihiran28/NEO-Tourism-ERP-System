@@ -26,11 +26,28 @@ export function BookingLifecyclePanel({
       booking.operationsStatus === "COMPLETE",
     ],
     [
-      "Accounts",
+      "Finance",
       booking.accountsStatus,
       booking.accountsStatus === "RECONCILED",
     ],
     ["Folder", booking.folderStatus, booking.folderStatus === "CLOSED"],
+  ] as const;
+  const issues = booking.suppliers.flatMap((product) =>
+    product.issues.map((issue) => ({ ...issue, product: product.description ?? product.serviceType })),
+  );
+  const openIssues = issues.filter((issue) => issue.status === "OPEN");
+  const openSpecialRequests = booking.specialRequests.filter((request) =>
+    ["REQUESTED", "UNAVAILABLE"].includes(request.status),
+  );
+  const milestones = [
+    ["Supplier Pending", booking.operationsStatus === "SUPPLIER_PENDING" || openIssues.some((x) => ["SUPPLIER_PAYMENT_PENDING", "BOOKING_CONFIRMATION_PENDING"].includes(x.type))],
+    ["Ticket Pending", booking.operationsStatus === "TICKETING_PENDING" || openIssues.some((x) => x.type === "TICKET_ISSUANCE_PENDING")],
+    ["Attention Required", booking.operationsStatus === "ACTION_REQUIRED" || openIssues.length > 0 || openSpecialRequests.length > 0],
+    ["Schedule Change", openIssues.some((x) => x.type === "SCHEDULE_CHANGE")],
+    ["Schedule Change Complete", booking.suppliers.some((x) => x.status === "SCHEDULE_CHANGE_COMPLETE")],
+    ["Travel Complete", booking.travelStatus === "TRAVEL_COMPLETE" || booking.suppliers.some((x) => x.status === "TRAVEL_COMPLETE")],
+    ["Reconciled", booking.accountsStatus === "RECONCILED"],
+    ["Travel Complete & Reconciled", booking.travelStatus === "TRAVEL_COMPLETE" && booking.accountsStatus === "RECONCILED"],
   ] as const;
   async function action(path: string, body?: unknown) {
     setSaving(true);
@@ -68,7 +85,7 @@ export function BookingLifecyclePanel({
           </h2>
           {booking.folderStatus === "CLOSED" && (
             <p className="mt-1 text-sm text-emerald-800">
-              This folder has completed Travel, Operations and Accounts
+              This folder has completed Travel, Operations and Finance
               reconciliation.
             </p>
           )}
@@ -79,9 +96,12 @@ export function BookingLifecyclePanel({
             booking.folderStatus !== "CLOSED" && (
               <button
                 disabled={saving}
-                onClick={() =>
-                  void action(`/bookings/${booking.id}/operations/complete`)
-                }
+                onClick={() => {
+                  if (
+                    window.confirm("Mark Operations complete for this folder?")
+                  )
+                    void action(`/bookings/${booking.id}/operations/complete`);
+                }}
                 className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white"
               >
                 Complete Operations
@@ -107,9 +127,10 @@ export function BookingLifecyclePanel({
                     "Reason for reopening this folder",
                   );
                   if (reason?.trim())
-                    void action(`/bookings/${booking.id}/reopen`, {
-                      reason: reason.trim(),
-                    });
+                    if (window.confirm("Reopen this closed folder?"))
+                      void action(`/bookings/${booking.id}/reopen`, {
+                        reason: reason.trim(),
+                      });
                 }}
                 className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white"
               >
@@ -140,6 +161,52 @@ export function BookingLifecyclePanel({
           </div>
         ))}
       </div>
+      <div className="mt-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Milestones & exceptions</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {milestones.filter(([, active]) => active).map(([label]) => (
+            <span key={label} className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{label}</span>
+          ))}
+          {!milestones.some(([, active]) => active) && <span className="text-sm text-slate-500">No active milestone or exception.</span>}
+        </div>
+      </div>
+      {openIssues.length > 0 && (
+        <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <p className="font-semibold text-amber-900">Outstanding actions ({openIssues.length})</p>
+          <p className="mt-1 text-sm text-amber-800">Responsible: {booking.operationsOwner ? `${booking.operationsOwner.firstName} ${booking.operationsOwner.lastName}` : "Not assigned"}</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {openIssues.map((issue) => <li key={issue.id}><b>{issue.product}:</b> {issue.reason}</li>)}
+          </ul>
+        </div>
+      )}
+      {openSpecialRequests.length > 0 && (
+        <div className="mt-5 rounded-xl border border-cyan-300 bg-cyan-50 p-4">
+          <p className="font-semibold text-cyan-900">
+            Outstanding special requests ({openSpecialRequests.length})
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {openSpecialRequests.map((request) => (
+              <li key={request.id}>
+                <b>{request.type.replaceAll("_", " ")}:</b> {request.details}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {booking.activity.some((item) => item.action === "PRODUCT_STATUS_CHANGED") && (
+        <details className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer font-semibold">Product status history</summary>
+          <div className="mt-3 space-y-2 text-sm">
+            {booking.activity.filter((item) => item.action === "PRODUCT_STATUS_CHANGED").map((item) => (
+              <div key={item.id} className="flex flex-wrap justify-between gap-2 border-t border-slate-100 pt-2">
+                <span>{String(item.oldValues?.status ?? "Unknown").replaceAll("_", " ")} → {String(item.newValues?.status ?? "Unknown").replaceAll("_", " ")}</span>
+                <span className="text-slate-500">{item.actor.firstName} {item.actor.lastName} · {new Date(item.createdAt).toLocaleString("en-GB")}</span>
+                {typeof item.newValues?.notes === "string" && <span className="basis-full text-slate-600">{item.newValues.notes}</span>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {booking.folderStatus === "OPEN" && (
         <div className="mt-5 rounded-xl bg-slate-50 p-4">
           <p className="font-semibold">

@@ -40,7 +40,11 @@ export function AttendanceControl() {
       setStatus({ ...result, eligible: true });
       setLoadedAt(Date.now());
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Attendance action failed.");
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : "Attendance action failed.",
+      );
       await load();
     } finally {
       setBusy(false);
@@ -50,14 +54,33 @@ export function AttendanceControl() {
   if (!status?.eligible) return null;
 
   const elapsed = Math.max(0, Math.floor((now - loadedAt) / 1000));
-  const excess = status.excessBreakSeconds === null
-    ? null
-    : (status.excessBreakSeconds ?? 0) +
-      (status.state === "ON_BREAK"
-        ? Math.max(0, elapsed - (status.remainingBreakSeconds ?? 0))
-        : 0);
+  const activeSeconds = status.activeSince
+    ? Math.max(0, Math.floor((now - Date.parse(status.activeSince)) / 1000))
+    : 0;
+  const remaining =
+    status.remainingBreakSeconds === null
+      ? null
+      : Math.max(
+          0,
+          (status.remainingBreakSeconds ?? 0) -
+            (status.state === "ON_BREAK" ? elapsed : 0),
+        );
+  const excess =
+    status.excessBreakSeconds === null
+      ? null
+      : (status.excessBreakSeconds ?? 0) +
+        (status.state === "ON_BREAK"
+          ? Math.max(0, elapsed - (status.remainingBreakSeconds ?? 0))
+          : 0);
   if (status.state === "NOT_CHECKED_IN") {
-    return <AttendanceButton busy={busy} onClick={() => act("/hr/attendance/check-in")}>Check In</AttendanceButton>;
+    return (
+      <AttendanceButton
+        busy={busy}
+        onClick={() => act("/hr/attendance/check-in")}
+      >
+        Check In
+      </AttendanceButton>
+    );
   }
 
   const checkedOut = status.state === "CHECKED_OUT";
@@ -66,41 +89,121 @@ export function AttendanceControl() {
       title={error || undefined}
       className={`flex h-10 items-center gap-2 rounded-xl border bg-white px-3 text-xs shadow-sm ${error ? "border-red-300" : "border-slate-200"}`}
     >
-      <span className={checkedOut ? "text-emerald-700" : status.state === "ON_BREAK" ? "text-amber-600" : "text-emerald-600"}>
+      <span
+        className={
+          checkedOut
+            ? "text-emerald-700"
+            : status.state === "ON_BREAK"
+              ? "text-amber-600"
+              : "text-emerald-600"
+        }
+      >
         {checkedOut ? "✓" : "●"}
       </span>
       <span className="whitespace-nowrap font-semibold text-slate-700">
         {checkedOut
           ? "Checked Out"
-          : status.state === "ON_BREAK" ? "On Break" : "Working"}
+          : `${status.state === "ON_BREAK" ? "On Break" : "Working"} ${formatTimer(activeSeconds)}`}
       </span>
+      {!checkedOut && remaining !== null && (
+        <span className="whitespace-nowrap text-slate-500">
+          Break remaining {formatMinutes(remaining)}
+        </span>
+      )}
       {excess !== null && excess > 0 && (
         <span className="whitespace-nowrap font-semibold text-red-600">
-          Break exceeded {formatTimer(excess)}
+          Exceed Time {formatTimer(excess)}
+        </span>
+      )}
+      {checkedOut && (
+        <span className="whitespace-nowrap text-slate-500">
+          Worked {formatDuration(status.workedSeconds ?? 0)} · Break{" "}
+          {formatDuration(status.breakSeconds ?? 0)}
         </span>
       )}
       {checkedOut ? (
-        <Action busy={busy} onClick={() => act("/hr/attendance/check-in")}>Check In</Action>
+        <Action busy={busy} onClick={() => act("/hr/attendance/check-in")}>
+          Check In
+        </Action>
       ) : status.state === "ON_BREAK" ? (
-        <Action busy={busy} onClick={() => act("/hr/attendance/break/end")}>Resume Work</Action>
+        <Action busy={busy} onClick={() => act("/hr/attendance/break/end")}>
+          Resume Work
+        </Action>
       ) : (
-        <Action busy={busy || !status.canStartBreak} onClick={() => act("/hr/attendance/break/start")}>Take Break</Action>
+        <Action
+          busy={busy || !status.canStartBreak}
+          onClick={() => act("/hr/attendance/break/start")}
+        >
+          Take Break
+        </Action>
       )}
-      {!checkedOut && <Action busy={busy} onClick={() => act("/hr/attendance/check-out")}>Check Out</Action>}
+      {!checkedOut && (
+        <Action busy={busy} onClick={() => act("/hr/attendance/check-out")}>
+          Check Out
+        </Action>
+      )}
     </div>
   );
 }
 
-function AttendanceButton({busy, onClick, children}:{busy:boolean;onClick:()=>void;children:React.ReactNode}) {
-  return <button type="button" disabled={busy} onClick={onClick} className="h-10 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-50">{children}</button>;
+function AttendanceButton({
+  busy,
+  onClick,
+  children,
+}: {
+  busy: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className="h-10 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
 }
 
-function Action({busy, onClick, children}:{busy:boolean;onClick:()=>void;children:React.ReactNode}) {
-  return <button type="button" disabled={busy} onClick={onClick} className="whitespace-nowrap font-semibold text-cyan-700 hover:text-cyan-900 disabled:text-slate-300">{children}</button>;
+function Action({
+  busy,
+  onClick,
+  children,
+}: {
+  busy: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className="whitespace-nowrap font-semibold text-cyan-700 hover:text-cyan-900 disabled:text-slate-300"
+    >
+      {children}
+    </button>
+  );
 }
 
 function formatTimer(seconds: number) {
-  const hours = Math.floor(seconds / 3600).toString().padStart(2, "0");
-  const minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0");
+  const hours = Math.floor(seconds / 3600)
+    .toString()
+    .padStart(2, "0");
+  const minutes = Math.floor((seconds % 3600) / 60)
+    .toString()
+    .padStart(2, "0");
   return `${hours}:${minutes}:${(seconds % 60).toString().padStart(2, "0")}`;
+}
+
+function formatMinutes(seconds: number) {
+  return `${Math.ceil(seconds / 60)}m`;
+}
+
+function formatDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }

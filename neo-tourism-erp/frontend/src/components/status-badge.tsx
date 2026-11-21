@@ -31,6 +31,7 @@ const warning = new Set([
   "ON_LEAVE",
   "OPEN",
   "PENDING",
+  "PROBATION",
   "URGENT",
   "WAITING_USER",
 ]);

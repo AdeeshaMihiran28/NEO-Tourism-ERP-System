@@ -13,7 +13,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
 }
 
@@ -52,9 +52,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         storeToken(response.accessToken);
         setUser(response.user);
       },
-      logout: () => {
-        clearToken();
-        setUser(null);
+      logout: async () => {
+        try {
+          await apiFetch("/hr/attendance/check-out", { method: "POST" });
+        } catch {
+          // Signing out must still work for unlinked or already checked-out users.
+        } finally {
+          clearToken();
+          setUser(null);
+        }
       },
       hasPermission: (permission) =>
         user?.permissions.includes(permission) ?? false,
