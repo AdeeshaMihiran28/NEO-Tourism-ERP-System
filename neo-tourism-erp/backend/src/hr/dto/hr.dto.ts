@@ -6,6 +6,7 @@ import {
   EmploymentType,
   OrganizationLevel,
   LeaveType,
+  PayFrequency,
   ProcessStatus,
 } from '../../../generated/prisma/client';
 import { Transform, Type, type TransformFnParams } from 'class-transformer';
@@ -16,6 +17,7 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -27,6 +29,7 @@ import {
 
 export class CreateEmployeeDto {
   @IsOptional() @IsUUID() userId?: string;
+  @IsOptional() @IsBoolean() erpAccessRequired?: boolean;
   @IsString() @IsNotEmpty() @MaxLength(80) firstName!: string;
   @IsString() @IsNotEmpty() @MaxLength(80) lastName!: string;
   @IsOptional() @IsEmail() personalEmail?: string;
@@ -39,6 +42,7 @@ export class CreateEmployeeDto {
   organizationLevel?: OrganizationLevel;
   @IsUUID() departmentId!: string;
   @IsOptional() @IsUUID() managerId?: string | null;
+  @IsOptional() @IsUUID() positionId?: string;
   @IsEnum(EmploymentType) employmentType!: EmploymentType;
   @IsDateString() joinDate!: string;
   @IsOptional() @IsDateString() endDate?: string;
@@ -46,6 +50,15 @@ export class CreateEmployeeDto {
   @IsOptional() @IsString() @MaxLength(500) address?: string;
   @IsOptional() @IsString() @MaxLength(100) emergencyContactName?: string;
   @IsOptional() @IsString() @MaxLength(40) emergencyContactPhone?: string;
+  @IsOptional() @IsString() @MaxLength(40) salaryBand?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) payRate?: number;
+  @IsOptional() @IsEnum(PayFrequency) payFrequency?: PayFrequency;
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{3}$/, {
+    message: 'currency must be a 3-letter uppercase code',
+  })
+  currency?: string;
   @IsOptional() @IsUUID() shiftId?: string;
 }
 
@@ -63,6 +76,7 @@ export class UpdateEmployeeDto {
   organizationLevel?: OrganizationLevel;
   @IsOptional() @IsUUID() departmentId?: string;
   @IsOptional() @IsUUID() managerId?: string | null;
+  @IsOptional() @IsUUID() positionId?: string | null;
   @IsOptional() @IsEnum(EmploymentType) employmentType?: EmploymentType;
   @IsOptional() @IsDateString() joinDate?: string;
   @IsOptional() @IsDateString() endDate?: string;
@@ -71,6 +85,25 @@ export class UpdateEmployeeDto {
   @IsOptional() @IsString() @MaxLength(100) emergencyContactName?: string;
   @IsOptional() @IsString() @MaxLength(40) emergencyContactPhone?: string;
   @IsOptional() @IsString() @MaxLength(1000) changeReason?: string;
+  @IsOptional() @IsString() @MaxLength(40) salaryBand?: string | null;
+  @IsOptional()
+  @Transform(({ value }: TransformFnParams): unknown => {
+    const v: unknown = value;
+    // undefined/'' = leave unchanged, null = clear, otherwise numeric.
+    if (v === undefined || v === null) return v;
+    if (typeof v === 'string' && v.trim() === '') return undefined;
+    return Number(v);
+  })
+  @IsNumber()
+  @Min(0)
+  payRate?: number | null;
+  @IsOptional() @IsEnum(PayFrequency) payFrequency?: PayFrequency | null;
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{3}$/, {
+    message: 'currency must be a 3-letter uppercase code',
+  })
+  currency?: string | null;
   @IsOptional() @IsUUID() shiftId?: string;
 }
 
@@ -107,7 +140,7 @@ export class UpdateAttendanceDto {
   @IsOptional() @IsDateString() checkInAt?: string;
   @IsOptional() @IsDateString() checkOutAt?: string;
   @IsOptional() @IsEnum(AttendanceStatus) status?: AttendanceStatus;
-  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsString() @IsNotEmpty() @MaxLength(500) notes!: string;
 }
 
 export class CreateAttendancePolicyDto {

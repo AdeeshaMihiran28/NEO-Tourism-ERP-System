@@ -24,7 +24,9 @@ import {
   ApprovalCommentDto,
   AssignLeavePolicyDto,
   AttendanceReportQueryDto,
+  AvailabilityQueryDto,
   CreateCustomFieldDto,
+  CreateDocumentTemplateDto,
   CreateDocumentVersionDto,
   CreateLeavePolicyDto,
   CreateTaskTemplateDto,
@@ -36,9 +38,12 @@ import {
   RejectLeaveDto,
   ReviewAccessDto,
   SetCustomFieldValueDto,
+  SharedCalendarQueryDto,
   StartProcessDto,
   UpdateCustomFieldDto,
   UpdateDocumentAccessDto,
+  UpdateDocumentTemplateDto,
+  IssueDocumentDto,
   UpdateHrTaskDto,
   UpdateMyProfileDto,
   UpsertLeaveApprovalPolicyDto,
@@ -56,6 +61,18 @@ export class HrLaunchController {
   @Permissions('hr.employment_history.view')
   history(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.hr.employmentHistory(id);
+  }
+
+  @Get('employees/:id/availability')
+  availability(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: AvailabilityQueryDto,
+  ) {
+    return this.hr.employeeAvailability(
+      id,
+      new Date(query.date),
+      query.dateTo ? new Date(query.dateTo) : undefined,
+    );
   }
 
   @Get('org-chart')
@@ -105,6 +122,58 @@ export class HrLaunchController {
     @Body() dto: SetCustomFieldValueDto,
   ) {
     return this.hr.setCustomFieldValue(employeeId, definitionId, dto);
+  }
+
+  @Get('document-templates')
+  @Permissions('hr.document.view')
+  documentTemplates() {
+    return this.hr.documentTemplates();
+  }
+
+  @Post('document-templates')
+  @Permissions('hr.document.manage')
+  createDocumentTemplate(
+    @Body() dto: CreateDocumentTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.createDocumentTemplate(
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
+
+  @Patch('document-templates/:id')
+  @Permissions('hr.document.manage')
+  updateDocumentTemplate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateDocumentTemplateDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.updateDocumentTemplate(
+      id,
+      dto,
+      user.id,
+      getRequestMetadata(req),
+    );
+  }
+
+  @Post('employees/:id/documents/from-template')
+  @Permissions('hr.document.manage')
+  issueDocument(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: IssueDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.hr.issueDocumentFromTemplate(
+      id,
+      dto.templateId,
+      user.id,
+      getRequestMetadata(req),
+    );
   }
 
   @Get('leave/policies')
@@ -244,6 +313,11 @@ export class HrLaunchController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.hr.leaveCalendar(query, user);
+  }
+
+  @Get('leave/calendar/shared')
+  sharedLeaveCalendar(@Query() query: SharedCalendarQueryDto) {
+    return this.hr.sharedLeaveCalendar(query);
   }
 
   @Get('reports/attendance')

@@ -250,14 +250,18 @@ export class HrController {
   }
   @Post('shifts') @Permissions('hr.shift.manage') createShift(
     @Body() dto: CreateShiftDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.hr.createShift(dto);
+    return this.hr.createShift(dto, user.id, getRequestMetadata(req));
   }
   @Patch('shifts/:id') @Permissions('hr.shift.manage') updateShift(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateShiftDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
   ) {
-    return this.hr.updateShift(id, dto);
+    return this.hr.updateShift(id, dto, user.id, getRequestMetadata(req));
   }
   @Post('employee-shifts') @Permissions('hr.shift.manage') assignShift(
     @Body() dto: AssignShiftDto,

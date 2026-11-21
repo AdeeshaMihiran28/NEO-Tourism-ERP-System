@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   AccessReviewStatus,
   AccessReviewTriggerType,
@@ -21,6 +22,7 @@ import {
   Prisma,
 } from '../../generated/prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { AccountProvisioningService } from '../account-provisioning/account-provisioning.service';
 import { AuditService } from '../audit/audit.service';
 import type { RequestMetadata } from '../common/request-metadata';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -32,6 +34,7 @@ import {
   AssignLeavePolicyDto,
   AttendanceReportQueryDto,
   CreateCustomFieldDto,
+  CreateDocumentTemplateDto,
   CreateDocumentVersionDto,
   CreateLeavePolicyDto,
   CreateTaskTemplateDto,
@@ -44,9 +47,11 @@ import {
   RejectLeaveDto,
   ReviewAccessDto,
   SetCustomFieldValueDto,
+  SharedCalendarQueryDto,
   StartProcessDto,
   UpdateCustomFieldDto,
   UpdateDocumentAccessDto,
+  UpdateDocumentTemplateDto,
   UpdateHrTaskDto,
   UpdateMyProfileDto,
   UpsertLeaveApprovalPolicyDto,
@@ -70,6 +75,7 @@ const basicEmployee = {
   endDate: true,
   departmentId: true,
   managerId: true,
+  positionId: true,
   department: { select: { id: true, name: true } },
   manager: {
     select: {
@@ -87,6 +93,7 @@ export class HrLaunchService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly accountProvisioning: AccountProvisioningService,
   ) {}
 
   async validateManager(
@@ -125,6 +132,7 @@ export class HrLaunchService {
       organizationLevel: string;
       departmentId: string;
       managerId: string | null;
+      positionId: string | null;
       employmentType: Prisma.EmployeeCreateInput['employmentType'];
       employmentStatus: Prisma.EmployeeCreateInput['employmentStatus'];
       joinDate: Date;
@@ -139,6 +147,7 @@ export class HrLaunchService {
         organizationLevel: employee.organizationLevel as never,
         departmentId: employee.departmentId,
         managerId: employee.managerId,
+        positionId: employee.positionId,
         employmentType: employee.employmentType,
         employmentStatus: employee.employmentStatus ?? EmploymentStatus.ACTIVE,
         effectiveFrom: employee.joinDate,
@@ -156,6 +165,7 @@ export class HrLaunchService {
       organizationLevel: string;
       departmentId: string;
       managerId: string | null;
+      positionId: string | null;
       employmentType: string;
       employmentStatus: string;
       joinDate: Date;
@@ -165,6 +175,7 @@ export class HrLaunchService {
       organizationLevel?: string;
       departmentId?: string;
       managerId?: string | null;
+      positionId?: string | null;
       employmentType?: string;
       employmentStatus?: string;
     },
@@ -182,6 +193,8 @@ export class HrLaunchService {
         next.departmentId !== undefined &&
         next.departmentId !== old.departmentId,
       manager: next.managerId !== undefined && next.managerId !== old.managerId,
+      position:
+        next.positionId !== undefined && next.positionId !== old.positionId,
       employmentType:
         next.employmentType !== undefined &&
         next.employmentType !== old.employmentType,
@@ -191,39 +204,58 @@ export class HrLaunchService {
     };
     if (!Object.values(changes).some(Boolean)) return;
 
-    const changeType = changes.department
-      ? EmploymentChangeType.DEPARTMENT_CHANGE
-      : changes.manager
-        ? EmploymentChangeType.MANAGER_CHANGE
-        : changes.organizationLevel
-          ? EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
-          : changes.jobTitle
-            ? EmploymentChangeType.JOB_TITLE_CHANGE
-            : changes.employmentType
-              ? EmploymentChangeType.EMPLOYMENT_TYPE_CHANGE
-              : EmploymentChangeType.STATUS_CHANGE;
-    const triggerType = changes.department
-      ? AccessReviewTriggerType.DEPARTMENT_CHANGE
-      : changes.manager
-        ? AccessReviewTriggerType.MANAGER_CHANGE
-        : changes.organizationLevel
-          ? AccessReviewTriggerType.ORGANIZATION_LEVEL_CHANGE
-          : changes.jobTitle
-            ? AccessReviewTriggerType.JOB_TITLE_CHANGE
-            : AccessReviewTriggerType.STATUS_CHANGE;
+    const changeType = changes.position
+      ? EmploymentChangeType.POSITION_CHANGE
+      : changes.department
+        ? EmploymentChangeType.DEPARTMENT_CHANGE
+        : changes.manager
+          ? EmploymentChangeType.MANAGER_CHANGE
+          : changes.organizationLevel
+            ? EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+            : changes.jobTitle
+              ? EmploymentChangeType.JOB_TITLE_CHANGE
+              : changes.employmentType
+                ? EmploymentChangeType.EMPLOYMENT_TYPE_CHANGE
+                : EmploymentChangeType.STATUS_CHANGE;
+    const triggerType = changes.position
+      ? AccessReviewTriggerType.POSITION_CHANGE
+      : changes.department
+        ? AccessReviewTriggerType.DEPARTMENT_CHANGE
+        : changes.manager
+          ? AccessReviewTriggerType.MANAGER_CHANGE
+          : changes.organizationLevel
+            ? AccessReviewTriggerType.ORGANIZATION_LEVEL_CHANGE
+            : changes.jobTitle
+              ? AccessReviewTriggerType.JOB_TITLE_CHANGE
+              : AccessReviewTriggerType.STATUS_CHANGE;
 
     const run = async (tx: Prisma.TransactionClient) => {
+      const effectiveDate = utcDay(new Date());
+      const newSnapshot = {
+        jobTitle: next.jobTitle ?? old.jobTitle,
+        organizationLevel: (next.organizationLevel ??
+          old.organizationLevel) as never,
+        departmentId: next.departmentId ?? old.departmentId,
+        managerId:
+          next.managerId !== undefined ? next.managerId : old.managerId,
+        positionId:
+          next.positionId !== undefined ? next.positionId : old.positionId,
+        employmentType: (next.employmentType ?? old.employmentType) as never,
+        employmentStatus: (next.employmentStatus ??
+          old.employmentStatus) as never,
+      };
+      // Close the previous open history interval so effectiveFrom ordering
+      // reflects the actual timeline instead of duplicating joinDate.
+      await tx.employmentHistory.updateMany({
+        where: { employeeId: old.id, effectiveTo: null },
+        data: { effectiveTo: effectiveDate },
+      });
       const history = await tx.employmentHistory.create({
         data: {
           employeeId: old.id,
-          jobTitle: old.jobTitle,
-          organizationLevel: old.organizationLevel as never,
-          departmentId: old.departmentId,
-          managerId: old.managerId,
-          employmentType: old.employmentType as never,
-          employmentStatus: old.employmentStatus as never,
-          effectiveFrom: old.joinDate,
-          effectiveTo: utcDay(new Date()),
+          ...newSnapshot,
+          effectiveFrom: effectiveDate,
+          effectiveTo: null,
           changeType,
           reason,
           changedById: actorId,
@@ -236,21 +268,30 @@ export class HrLaunchService {
           })
         : [];
       const newDepartmentId = next.departmentId ?? old.departmentId;
-      const mappings = await tx.departmentRoleMapping.findMany({
-        where: { departmentId: newDepartmentId, isActive: true },
-        select: { roleId: true },
-      });
-      const review = await tx.employeeAccessReview.create({
-        data: {
-          employeeId: old.id,
-          userId: old.userId,
-          triggerType,
-          oldDepartmentId: old.departmentId,
-          newDepartmentId,
-          oldRoles: oldRoles.map(({ roleId }) => roleId),
-          recommendedRoles: mappings.map(({ roleId }) => roleId),
-        },
-      });
+      const newPositionId =
+        next.positionId !== undefined ? next.positionId : old.positionId;
+      const mappings = newPositionId
+        ? await tx.positionRoleMapping.findMany({
+            where: { positionId: newPositionId, isActive: true },
+            select: { roleId: true },
+          })
+        : [];
+      // Position access is reconciled immediately after history is recorded.
+      // That service opens a review only for approval-required/privileged roles.
+      const review =
+        triggerType === AccessReviewTriggerType.POSITION_CHANGE
+          ? null
+          : await tx.employeeAccessReview.create({
+              data: {
+                employeeId: old.id,
+                userId: old.userId,
+                triggerType,
+                oldDepartmentId: old.departmentId,
+                newDepartmentId,
+                oldRoles: oldRoles.map(({ roleId }) => roleId),
+                recommendedRoles: mappings.map(({ roleId }) => roleId),
+              },
+            });
       await this.audit.log(
         {
           actorUserId: actorId,
@@ -263,19 +304,22 @@ export class HrLaunchService {
         tx,
       );
       if (
+        changeType === EmploymentChangeType.POSITION_CHANGE ||
         changeType === EmploymentChangeType.MANAGER_CHANGE ||
         changeType === EmploymentChangeType.DEPARTMENT_CHANGE ||
         changeType === EmploymentChangeType.JOB_TITLE_CHANGE ||
         changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
       ) {
         const action =
-          changeType === EmploymentChangeType.MANAGER_CHANGE
-            ? 'EMPLOYEE_MANAGER_CHANGED'
-            : changeType === EmploymentChangeType.DEPARTMENT_CHANGE
-              ? 'EMPLOYEE_DEPARTMENT_CHANGED'
-              : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
-                ? 'EMPLOYEE_ORG_LEVEL_CHANGED'
-                : 'EMPLOYEE_JOB_TITLE_CHANGED';
+          changeType === EmploymentChangeType.POSITION_CHANGE
+            ? 'EMPLOYEE_POSITION_CHANGED'
+            : changeType === EmploymentChangeType.MANAGER_CHANGE
+              ? 'EMPLOYEE_MANAGER_CHANGED'
+              : changeType === EmploymentChangeType.DEPARTMENT_CHANGE
+                ? 'EMPLOYEE_DEPARTMENT_CHANGED'
+                : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                  ? 'EMPLOYEE_ORG_LEVEL_CHANGED'
+                  : 'EMPLOYEE_JOB_TITLE_CHANGED';
         await this.audit.log(
           {
             actorUserId: actorId,
@@ -283,52 +327,64 @@ export class HrLaunchService {
             entityId: old.id,
             action,
             oldValues:
-              changeType === EmploymentChangeType.MANAGER_CHANGE
-                ? { managerId: old.managerId }
-                : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
-                  ? { organizationLevel: old.organizationLevel }
-                  : { changeType },
+              changeType === EmploymentChangeType.POSITION_CHANGE
+                ? { positionId: old.positionId }
+                : changeType === EmploymentChangeType.MANAGER_CHANGE
+                  ? { managerId: old.managerId }
+                  : changeType ===
+                      EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                    ? { organizationLevel: old.organizationLevel }
+                    : changeType === EmploymentChangeType.DEPARTMENT_CHANGE
+                      ? { departmentId: old.departmentId }
+                      : { changeType },
             newValues:
-              changeType === EmploymentChangeType.MANAGER_CHANGE
-                ? { managerId: next.managerId ?? null }
-                : changeType === EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
-                  ? { organizationLevel: next.organizationLevel ?? null }
-                  : { changeType },
+              changeType === EmploymentChangeType.POSITION_CHANGE
+                ? { positionId: next.positionId ?? null }
+                : changeType === EmploymentChangeType.MANAGER_CHANGE
+                  ? { managerId: next.managerId ?? null }
+                  : changeType ===
+                      EmploymentChangeType.ORGANIZATION_LEVEL_CHANGE
+                    ? { organizationLevel: next.organizationLevel ?? null }
+                    : changeType === EmploymentChangeType.DEPARTMENT_CHANGE
+                      ? { departmentId: next.departmentId ?? old.departmentId }
+                      : { changeType },
             requestMetadata: meta,
           },
           tx,
         );
       }
-      await this.audit.log(
-        {
-          actorUserId: actorId,
-          entityType: 'EmployeeAccessReview',
-          entityId: review.id,
-          action: 'EMPLOYEE_ACCESS_REVIEW_CREATED',
-          newValues: { employeeId: old.id, triggerType },
-          requestMetadata: meta,
-        },
-        tx,
-      );
-      const reviewers = await this.userIdsWithPermission(
-        'hr.access_review.manage',
-        tx,
-      );
-      await Promise.all(
-        reviewers.map((userId) =>
-          this.notifications.create(
-            {
-              userId,
-              type: NotificationType.ACCESS_REVIEW_REQUIRED,
-              title: 'Employee access review required',
-              message: 'An employment change requires an ERP access review.',
-              entityType: 'EmployeeAccessReview',
-              entityId: review.id,
-            },
-            tx,
+      if (review) {
+        await this.audit.log(
+          {
+            actorUserId: actorId,
+            entityType: 'EmployeeAccessReview',
+            entityId: review.id,
+            action: 'EMPLOYEE_ACCESS_REVIEW_CREATED',
+            newValues: { employeeId: old.id, triggerType },
+            requestMetadata: meta,
+          },
+          tx,
+        );
+        const reviewers = await this.userIdsWithPermission(
+          'hr.access_review.manage',
+          tx,
+        );
+        await Promise.all(
+          reviewers.map((userId) =>
+            this.notifications.create(
+              {
+                userId,
+                type: NotificationType.ACCESS_REVIEW_REQUIRED,
+                title: 'Employee access review required',
+                message: 'An employment change requires an ERP access review.',
+                entityType: 'EmployeeAccessReview',
+                entityId: review.id,
+              },
+              tx,
+            ),
           ),
-        ),
-      );
+        );
+      }
     };
     await (client ? run(client) : this.prisma.$transaction(run));
   }
@@ -362,16 +418,34 @@ export class HrLaunchService {
       where: { id: employee.userId },
       select: { isActive: true },
     });
-    if (!user?.isActive) return;
+    if (!user) return;
+
+    await client.user.update({
+      where: { id: employee.userId },
+      data: { isActive: false },
+    });
+    await client.employee.update({
+      where: { id: employee.id },
+      data: { erpAccountDisabled: true },
+    });
+    const invitationsInvalidated =
+      await this.accountProvisioning.invalidateOpenInvitations(
+        employee.userId,
+        client,
+      );
 
     await this.audit.log(
       {
         actorUserId: actorId,
         entityType: 'Employee',
         entityId: employee.id,
-        action: 'ERP_ACCESS_DISABLE_REQUIRED',
-        oldValues: { employmentStatus: oldStatus, userActive: true },
-        newValues: { employmentStatus: newStatus, userActive: true },
+        action: 'ERP_ACCESS_DISABLED',
+        oldValues: { employmentStatus: oldStatus, userActive: user.isActive },
+        newValues: {
+          employmentStatus: newStatus,
+          userActive: false,
+          invitationsInvalidated,
+        },
         requestMetadata: meta,
       },
       client,
@@ -385,8 +459,8 @@ export class HrLaunchService {
             {
               userId,
               type: NotificationType.ACCESS_REVIEW_REQUIRED,
-              title: 'ERP access disable required',
-              message: `ERP access must be disabled for ${employee.employeeNumber} — ${employee.firstName} ${employee.lastName}.`,
+              title: 'ERP access disabled',
+              message: `ERP access was disabled for ${employee.employeeNumber} — ${employee.firstName} ${employee.lastName}.`,
               entityType: 'User',
               entityId: employee.userId!,
             },
@@ -405,6 +479,12 @@ export class HrLaunchService {
 
   async orgChart() {
     const employees = await this.prisma.employee.findMany({
+      where: {
+        archivedAt: null,
+        employmentStatus: {
+          notIn: [EmploymentStatus.TERMINATED, EmploymentStatus.INACTIVE],
+        },
+      },
       select: {
         id: true,
         employeeNumber: true,
@@ -439,6 +519,7 @@ export class HrLaunchService {
   directory(query: DirectoryQueryDto) {
     return this.prisma.employee.findMany({
       where: {
+        archivedAt: null,
         employmentStatus: { not: EmploymentStatus.TERMINATED },
         ...(query.departmentId && { departmentId: query.departmentId }),
         ...(query.search && {
@@ -506,11 +587,20 @@ export class HrLaunchService {
     actorId: string,
     meta?: RequestMetadata,
   ) {
-    const updated = await this.prisma.employeeCustomFieldDefinition
-      .update({ where: { id }, data: dto })
-      .catch(() => {
-        throw new NotFoundException('Custom field not found.');
+    let updated;
+    try {
+      updated = await this.prisma.employeeCustomFieldDefinition.update({
+        where: { id },
+        data: dto,
       });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      )
+        throw new NotFoundException('Custom field not found.');
+      throw error;
+    }
     await this.audit.log({
       actorUserId: actorId,
       entityType: 'EmployeeCustomFieldDefinition',
@@ -533,6 +623,8 @@ export class HrLaunchService {
       });
     if (!definition?.isActive)
       throw new BadRequestException('Custom field is unavailable.');
+    await this.requireEmployee(employeeId);
+    validateCustomFieldValue(definition, dto.value);
     return this.prisma.employeeCustomFieldValue.upsert({
       where: { employeeId_definitionId: { employeeId, definitionId } },
       create: {
@@ -583,6 +675,13 @@ export class HrLaunchService {
         rowErrors.push(
           'firstName, lastName, jobTitle and joinDate are required',
         );
+      if (
+        row.joinDate &&
+        Number.isNaN(
+          Date.parse(`${String(row.joinDate).slice(0, 10)}T00:00:00.000Z`),
+        )
+      )
+        rowErrors.push('joinDate is invalid');
       if (!department) rowErrors.push('department is invalid');
       if (row.workEmail && !/^\S+@\S+\.\S+$/.test(row.workEmail))
         rowErrors.push('workEmail is invalid');
@@ -597,6 +696,7 @@ export class HrLaunchService {
       if (
         ![
           'ACTIVE',
+          'PROBATION',
           'ON_LEAVE',
           'NOTICE_PERIOD',
           'TERMINATED',
@@ -604,6 +704,18 @@ export class HrLaunchService {
         ].includes(row.employmentStatus ?? '')
       )
         rowErrors.push('employmentStatus is invalid');
+      if (
+        row.payRate &&
+        (Number.isNaN(Number(row.payRate)) || Number(row.payRate) < 0)
+      )
+        rowErrors.push('payRate must be a number of 0 or more');
+      if (
+        row.payFrequency &&
+        !['HOURLY', 'DAILY', 'MONTHLY'].includes(row.payFrequency)
+      )
+        rowErrors.push('payFrequency is invalid');
+      if (row.currency && !/^[A-Z]{3}$/.test(row.currency))
+        rowErrors.push('currency must be a 3-letter uppercase code');
       if (
         row.employeeNumber &&
         (numberSet.has(row.employeeNumber) ||
@@ -668,9 +780,14 @@ export class HrLaunchService {
             employmentType: row.employmentType as never,
             employmentStatus: row.employmentStatus as never,
             joinDate: dateOnly(row.joinDate as string),
+            salaryBand: (row.salaryBand as string) || null,
+            payRate: row.payRate ? String(Number(row.payRate)) : null,
+            payFrequency: (row.payFrequency as never) || null,
+            currency: (row.currency as string) || null,
           },
         });
         await this.recordInitialHistory(employee, actorId, tx);
+        await this.initializeLeaveBalances(employee.id, employee.joinDate, tx);
       }
       await this.audit.log(
         {
@@ -695,7 +812,15 @@ export class HrLaunchService {
 
   async exportEmployees(actorId: string, meta?: RequestMetadata) {
     const employees = await this.prisma.employee.findMany({
-      select: basicEmployee,
+      // Compensation travels with the HR export only (permission-gated
+      // endpoint) — list/directory selects deliberately exclude it.
+      select: {
+        ...basicEmployee,
+        salaryBand: true,
+        payRate: true,
+        payFrequency: true,
+        currency: true,
+      },
       orderBy: { employeeNumber: 'asc' },
     });
     await this.audit.log({
@@ -719,6 +844,10 @@ export class HrLaunchService {
         'employmentType',
         'employmentStatus',
         'joinDate',
+        'salaryBand',
+        'payRate',
+        'payFrequency',
+        'currency',
       ],
       employees.map((employee) => [
         employee.employeeNumber,
@@ -732,6 +861,10 @@ export class HrLaunchService {
         employee.employmentType,
         employee.employmentStatus,
         employee.joinDate.toISOString().slice(0, 10),
+        employee.salaryBand ?? '',
+        employee.payRate?.toString() ?? '',
+        employee.payFrequency ?? '',
+        employee.currency ?? '',
       ]),
     );
   }
@@ -969,6 +1102,8 @@ export class HrLaunchService {
       include: { employee: true, approvals: true },
     });
     if (!leave) throw new NotFoundException('Leave request not found.');
+    if (leave.employee.userId === actor.id)
+      throw new ForbiddenException('You cannot review your own leave request.');
     if (leave.status !== LeaveRequestStatus.PENDING)
       throw new ConflictException('Leave request is no longer pending.');
     if (
@@ -1107,6 +1242,8 @@ export class HrLaunchService {
       include: { employee: true, approvals: true },
     });
     if (!leave) throw new NotFoundException('Leave request not found.');
+    if (leave.employee.userId === actor.id)
+      throw new ForbiddenException('You cannot review your own leave request.');
     if (leave.status !== LeaveRequestStatus.PENDING)
       throw new ConflictException('Leave request is no longer pending.');
     if (
@@ -1182,7 +1319,11 @@ export class HrLaunchService {
                 ? 'LEAVE_MANAGER_REJECTED'
                 : 'LEAVE_HR_REJECTED',
             oldValues: { status: LeaveRequestStatus.PENDING },
-            newValues: { status: LeaveRequestStatus.REJECTED, level },
+            newValues: {
+              status: LeaveRequestStatus.REJECTED,
+              level,
+              reason: dto.reason,
+            },
             requestMetadata: meta,
           },
           tx,
@@ -1380,25 +1521,106 @@ export class HrLaunchService {
     });
   }
 
+  async sharedLeaveCalendar(query: SharedCalendarQueryDto) {
+    // Company-wide view for every employee: approved leave only (who + dates;
+    // never reasons or pending requests), so staff can plan around each other.
+    // Projection is intentionally narrow — no work contact, no employment
+    // internals, no reason/notes/documents/balances.
+    return this.prisma.leaveRequest.findMany({
+      where: {
+        status: LeaveRequestStatus.APPROVED,
+        startDate: { lte: dateOnly(query.dateTo) },
+        endDate: { gte: dateOnly(query.dateFrom) },
+        ...(query.leaveType && { leaveType: query.leaveType }),
+        ...(query.employeeId && { employeeId: query.employeeId }),
+        employee: {
+          archivedAt: null,
+          ...(query.departmentId && { departmentId: query.departmentId }),
+        },
+      },
+      select: {
+        id: true,
+        leaveType: true,
+        startDate: true,
+        endDate: true,
+        employee: {
+          select: {
+            id: true,
+            employeeNumber: true,
+            firstName: true,
+            lastName: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { startDate: 'asc' },
+      take: 1000,
+    });
+  }
+
   async isEmployeeAvailable(employeeId: string, date: Date) {
+    return (await this.employeeAvailability(employeeId, date)).available;
+  }
+
+  async employeeAvailability(
+    employeeId: string,
+    from: Date,
+    to?: Date,
+  ): Promise<{
+    employeeId: string;
+    dateFrom: string;
+    dateTo: string;
+    available: boolean;
+    reason: string | null;
+    conflicts: Array<{ leaveType: string; startDate: Date; endDate: Date }>;
+  }> {
+    const start = utcDay(from);
+    const end = utcDay(to ?? from);
+    const iso = (day: Date) => day.toISOString().slice(0, 10);
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
     });
+    if (!employee)
+      return {
+        employeeId,
+        dateFrom: iso(start),
+        dateTo: iso(end),
+        available: false,
+        reason: 'Employee not found.',
+        conflicts: [],
+      };
     if (
-      !employee ||
+      employee.archivedAt ||
       employee.employmentStatus === EmploymentStatus.INACTIVE ||
       employee.employmentStatus === EmploymentStatus.TERMINATED
     )
-      return false;
-    const leave = await this.prisma.leaveRequest.count({
+      return {
+        employeeId,
+        dateFrom: iso(start),
+        dateTo: iso(end),
+        available: false,
+        reason: `Employee is ${employee.archivedAt ? 'archived' : employee.employmentStatus.toLowerCase().replaceAll('_', ' ')}.`,
+        conflicts: [],
+      };
+    const conflicts = await this.prisma.leaveRequest.findMany({
       where: {
         employeeId,
         status: LeaveRequestStatus.APPROVED,
-        startDate: { lte: utcDay(date) },
-        endDate: { gte: utcDay(date) },
+        startDate: { lte: end },
+        endDate: { gte: start },
       },
+      select: { leaveType: true, startDate: true, endDate: true },
+      orderBy: { startDate: 'asc' },
     });
-    return leave === 0;
+    return {
+      employeeId,
+      dateFrom: iso(start),
+      dateTo: iso(end),
+      available: conflicts.length === 0,
+      reason:
+        conflicts.length === 0 ? null : 'Approved leave overlaps the dates.',
+      conflicts,
+    };
   }
 
   async attendanceReport(query: AttendanceReportQueryDto) {
@@ -1411,7 +1633,10 @@ export class HrLaunchService {
       },
       select: {
         ...basicEmployee,
-        attendance: { where: { date: { gte: start, lte: end } } },
+        attendance: {
+          where: { date: { gte: start, lte: end } },
+          include: { workSessions: true, breaks: true },
+        },
         shifts: {
           where: {
             effectiveFrom: { lte: end },
@@ -1428,18 +1653,49 @@ export class HrLaunchService {
       let overtimeMinutes = 0;
       const shift = employee.shifts[0]?.shift;
       const standardMinutes = shift
-        ? timeMinutes(shift.endTime) - timeMinutes(shift.startTime)
+        ? shiftStandardMinutes(shift.startTime, shift.endTime)
         : 480;
+      const now = new Date();
       for (const attendance of employee.attendance) {
-        if (attendance.checkInAt && attendance.checkOutAt) {
-          const minutes = Math.max(
-            0,
-            (attendance.checkOutAt.getTime() - attendance.checkInAt.getTime()) /
-              60000,
-          );
-          totalMinutes += minutes;
-          overtimeMinutes += Math.max(0, minutes - standardMinutes);
-        }
+        // Net worked time, consistent with attendanceMetrics():
+        // sum(work sessions) minus sum(breaks). Open sessions/breaks count up to now.
+        const sessionMs = (attendance.workSessions ?? []).reduce(
+          (sum, s) =>
+            sum +
+            Math.max(
+              0,
+              (s.endedAt ? new Date(s.endedAt).getTime() : now.getTime()) -
+                new Date(s.startedAt).getTime(),
+            ),
+          0,
+        );
+        const breakMs = (attendance.breaks ?? []).reduce(
+          (sum, b) =>
+            sum +
+            Math.max(
+              0,
+              (b.endedAt ? new Date(b.endedAt).getTime() : now.getTime()) -
+                new Date(b.startedAt).getTime(),
+            ),
+          0,
+        );
+        const minutes = Math.max(0, (sessionMs - breakMs) / 60000);
+        // Fall back to checkIn/checkOut only when no session rows exist
+        // (legacy data). Otherwise sessions are the source of truth.
+        const fallbackMinutes =
+          (attendance.workSessions ?? []).length === 0 &&
+          attendance.checkInAt &&
+          attendance.checkOutAt
+            ? Math.max(
+                0,
+                (new Date(attendance.checkOutAt).getTime() -
+                  new Date(attendance.checkInAt).getTime()) /
+                  60000,
+              )
+            : null;
+        const netMinutes = fallbackMinutes ?? minutes;
+        totalMinutes += netMinutes;
+        overtimeMinutes += Math.max(0, netMinutes - standardMinutes);
       }
       const count = (status: string) =>
         employee.attendance.filter((item) => item.status === status).length;
@@ -1570,17 +1826,47 @@ export class HrLaunchService {
           ),
         );
       }
+      // Pre-boarding pack: issue offer letter / policy docs from templates so
+      // the new hire can review and acknowledge them from day one.
+      const issuedDocuments: string[] = [];
+      for (const templateId of dto.documentTemplateIds ?? [])
+        issuedDocuments.push(
+          (
+            await this.issueDocumentFromTemplate(
+              employeeId,
+              templateId,
+              actorId,
+              meta,
+              tx,
+            )
+          ).id,
+        );
       await this.audit.log(
         {
           actorUserId: actorId,
           entityType: 'OnboardingTask',
           entityId: employeeId,
           action: 'ONBOARDING_TASK_CREATED',
-          newValues: { taskCount: tasks.length },
+          newValues: {
+            taskCount: tasks.length,
+            issuedDocuments: issuedDocuments.length,
+          },
           requestMetadata: meta,
         },
         tx,
       );
+      if (employee.userId)
+        await this.notifications.create(
+          {
+            userId: employee.userId,
+            type: NotificationType.ONBOARDING_STARTED,
+            title: `Welcome to the team, ${employee.firstName}!`,
+            message: `Your onboarding has started with ${tasks.length} task(s). Open My HR Profile to track your progress and complete your documents.`,
+            entityType: 'Employee',
+            entityId: employeeId,
+          },
+          tx,
+        );
       return tasks;
     });
   }
@@ -1807,14 +2093,14 @@ export class HrLaunchService {
           entityId: id,
           action:
             kind === 'onboarding'
-              ? 'ONBOARDING_TASK_COMPLETED'
-              : 'OFFBOARDING_TASK_COMPLETED',
+              ? `ONBOARDING_TASK_${dto.status}`
+              : `OFFBOARDING_TASK_${dto.status}`,
           newValues: { status: dto.status },
           requestMetadata: meta,
         },
         tx,
       );
-      await this.refreshProcessStatus(task.employeeId, kind, tx);
+      await this.refreshProcessStatus(task.employeeId, kind, tx, actorId, meta);
       return task;
     });
   }
@@ -1884,6 +2170,24 @@ export class HrLaunchService {
         meta,
         tx,
       );
+      if (updated.managerId) {
+        const manager = await tx.employee.findUnique({
+          where: { id: updated.managerId },
+          select: { userId: true },
+        });
+        if (manager?.userId)
+          await this.notifications.create(
+            {
+              userId: manager.userId,
+              type: NotificationType.OFFBOARDING_COMPLETED,
+              title: 'Direct report offboarding complete',
+              message: `${updated.firstName} ${updated.lastName} was terminated on ${updated.endDate?.toISOString().slice(0, 10) ?? 'record'}. ERP access revocation is tracked separately.`,
+              entityType: 'Employee',
+              entityId: employeeId,
+            },
+            tx,
+          );
+      }
       return updated;
     });
   }
@@ -1899,6 +2203,10 @@ export class HrLaunchService {
         address: true,
         emergencyContactName: true,
         emergencyContactPhone: true,
+        salaryBand: true,
+        payRate: true,
+        payFrequency: true,
+        currency: true,
         leaveBalances: { orderBy: [{ year: 'desc' }, { leaveType: 'asc' }] },
         leaveRequests: {
           orderBy: { createdAt: 'desc' },
@@ -2039,10 +2347,35 @@ export class HrLaunchService {
         employeeId: employee.id,
         visibility: EmployeeDocumentVisibility.EMPLOYEE,
       },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
     });
     if (!document)
       throw new ForbiddenException(
         'Document is not available for acknowledgement.',
+      );
+    // Tamper-evident pinning: the acknowledgement records exactly which
+    // version was signed and a SHA-256 hash of its content. A newer version
+    // still requires a fresh acknowledgement (see version check below).
+    const latestVersion = document.versions[0]?.version ?? 1;
+    const contentHash = sha256(
+      document.contentText ??
+        `${document.storageKey}:${document.fileName}:${latestVersion}`,
+    );
+    const prior = await this.prisma.documentAcknowledgement.findUnique({
+      where: {
+        employeeId_employeeDocumentId: {
+          employeeId: employee.id,
+          employeeDocumentId: id,
+        },
+      },
+      select: { status: true, documentVersion: true },
+    });
+    if (
+      prior?.status === 'ACKNOWLEDGED' &&
+      prior.documentVersion === latestVersion
+    )
+      throw new ConflictException(
+        'This document version was already acknowledged.',
       );
     const acknowledgement = await this.prisma.documentAcknowledgement.upsert({
       where: {
@@ -2058,12 +2391,16 @@ export class HrLaunchService {
         acknowledgedAt: new Date(),
         typedName: dto.typedName,
         ipAddress,
+        documentVersion: latestVersion,
+        contentHash,
       },
       update: {
         status: 'ACKNOWLEDGED',
         acknowledgedAt: new Date(),
         typedName: dto.typedName,
         ipAddress,
+        documentVersion: latestVersion,
+        contentHash,
       },
     });
     await this.audit.log({
@@ -2071,7 +2408,11 @@ export class HrLaunchService {
       entityType: 'DocumentAcknowledgement',
       entityId: acknowledgement.id,
       action: 'DOCUMENT_ACKNOWLEDGED',
-      newValues: { employeeDocumentId: id },
+      newValues: {
+        employeeDocumentId: id,
+        documentVersion: latestVersion,
+        contentHash,
+      },
       requestMetadata: meta,
     });
     return {
@@ -2088,6 +2429,203 @@ export class HrLaunchService {
       include: { employee: { select: basicEmployee } },
       orderBy: { expiryDate: 'asc' },
     });
+  }
+
+  documentTemplates() {
+    return this.prisma.documentTemplate.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createDocumentTemplate(
+    dto: CreateDocumentTemplateDto,
+    actorId: string,
+    meta?: RequestMetadata,
+  ) {
+    try {
+      const template = await this.prisma.documentTemplate.create({
+        data: {
+          name: dto.name.trim(),
+          category: dto.category ?? 'CONTRACT',
+          visibility: dto.visibility ?? EmployeeDocumentVisibility.EMPLOYEE,
+          content: dto.content,
+          requiresAcknowledgement: dto.requiresAcknowledgement ?? true,
+        },
+      });
+      await this.audit.log({
+        actorUserId: actorId,
+        entityType: 'DocumentTemplate',
+        entityId: template.id,
+        action: 'DOCUMENT_TEMPLATE_CREATED',
+        newValues: { name: template.name, category: template.category },
+        requestMetadata: meta,
+      });
+      return template;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      )
+        throw new ConflictException(
+          'A document template with this name already exists.',
+        );
+      throw error;
+    }
+  }
+
+  async updateDocumentTemplate(
+    id: string,
+    dto: UpdateDocumentTemplateDto,
+    actorId: string,
+    meta?: RequestMetadata,
+  ) {
+    let template;
+    try {
+      template = await this.prisma.documentTemplate.update({
+        where: { id },
+        data: {
+          ...(dto.name && { name: dto.name.trim() }),
+          ...(dto.category && { category: dto.category }),
+          ...(dto.visibility && { visibility: dto.visibility }),
+          ...(dto.content && { content: dto.content }),
+          ...(dto.requiresAcknowledgement !== undefined && {
+            requiresAcknowledgement: dto.requiresAcknowledgement,
+          }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      )
+        throw new NotFoundException('Document template not found.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      )
+        throw new ConflictException(
+          'A document template with this name already exists.',
+        );
+      throw error;
+    }
+    await this.audit.log({
+      actorUserId: actorId,
+      entityType: 'DocumentTemplate',
+      entityId: id,
+      action: 'DOCUMENT_TEMPLATE_UPDATED',
+      newValues: { name: template.name, isActive: template.isActive },
+      requestMetadata: meta,
+    });
+    return template;
+  }
+
+  async issueDocumentFromTemplate(
+    employeeId: string,
+    templateId: string,
+    actorId: string,
+    meta?: RequestMetadata,
+    client?: Prisma.TransactionClient,
+  ) {
+    const run = async (tx: Prisma.TransactionClient) => {
+      const template = await tx.documentTemplate.findUnique({
+        where: { id: templateId },
+      });
+      if (!template || !template.isActive)
+        throw new NotFoundException('Document template not found or inactive.');
+      const employee = await tx.employee.findUnique({
+        where: { id: employeeId },
+        include: {
+          department: { select: { name: true } },
+          manager: {
+            select: { firstName: true, lastName: true },
+          },
+        },
+      });
+      if (!employee) throw new NotFoundException('Employee not found.');
+      const content = renderTemplate(template.content, {
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        employeeNumber: employee.employeeNumber,
+        jobTitle: employee.jobTitle,
+        department: employee.department.name,
+        manager: employee.manager
+          ? `${employee.manager.firstName} ${employee.manager.lastName}`
+          : 'Not assigned',
+        joinDate: employee.joinDate.toISOString().slice(0, 10),
+        date: new Date().toISOString().slice(0, 10),
+      });
+      const fileName = `${template.name} — ${employee.firstName} ${employee.lastName}.txt`;
+      const document = await tx.employeeDocument.create({
+        data: {
+          employeeId,
+          fileName,
+          fileType: 'text/plain',
+          // Inline text documents carry rendered content in contentText;
+          // storageKey is a virtual pointer namespaced by template.
+          storageKey: `template/${template.id}/${randomUUID()}`,
+          contentText: content,
+          templateId: template.id,
+          category: template.category,
+          visibility: template.visibility,
+          uploadedById: actorId,
+        },
+      });
+      await tx.employeeDocumentVersion.create({
+        data: {
+          employeeDocumentId: document.id,
+          version: 1,
+          fileName,
+          storageKey: document.storageKey,
+          uploadedById: actorId,
+        },
+      });
+      if (
+        template.requiresAcknowledgement &&
+        template.visibility === EmployeeDocumentVisibility.EMPLOYEE
+      )
+        await tx.documentAcknowledgement.create({
+          data: {
+            employeeId,
+            employeeDocumentId: document.id,
+            status: 'PENDING',
+          },
+        });
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'EmployeeDocument',
+          entityId: document.id,
+          action: 'EMPLOYEE_DOCUMENT_ISSUED',
+          newValues: {
+            employeeId,
+            templateId: template.id,
+            templateName: template.name,
+          },
+          requestMetadata: meta,
+        },
+        tx,
+      );
+      if (
+        employee.userId &&
+        template.visibility === EmployeeDocumentVisibility.EMPLOYEE
+      )
+        await this.notifications.create(
+          {
+            userId: employee.userId,
+            type: NotificationType.GENERAL,
+            title: `New document: ${template.name}`,
+            message: template.requiresAcknowledgement
+              ? 'Please review and acknowledge it in My HR Profile → Documents.'
+              : 'It is available in My HR Profile → Documents.',
+            entityType: 'EmployeeDocument',
+            entityId: document.id,
+          },
+          tx,
+        );
+      return { ...document, contentText: content };
+    };
+    return client ? run(client) : this.prisma.$transaction(run);
   }
 
   roleMappings() {
@@ -2188,6 +2726,7 @@ export class HrLaunchService {
           employmentStatus: {
             in: [
               EmploymentStatus.ACTIVE,
+              EmploymentStatus.PROBATION,
               EmploymentStatus.ON_LEAVE,
               EmploymentStatus.NOTICE_PERIOD,
             ],
@@ -2242,13 +2781,28 @@ export class HrLaunchService {
         where: { status: LeaveRequestStatus.PENDING },
       }),
     ]);
-    const starting = await this.prisma.employee.count({
-      where: {
-        joinDate: { lt: from },
-        OR: [{ endDate: null }, { endDate: { gte: from } }],
-      },
-    });
-    const ending = activeHeadcount;
+    const [starting, ending] = await this.prisma.$transaction([
+      // Active at start of period: joined before `from`, not yet ended/archived.
+      this.prisma.employee.count({
+        where: {
+          joinDate: { lt: from },
+          AND: [
+            { OR: [{ endDate: null }, { endDate: { gte: from } }] },
+            { OR: [{ archivedAt: null }, { archivedAt: { gte: from } }] },
+          ],
+        },
+      }),
+      // Active at end of period: joined on/before `to`, still employed after `to`.
+      this.prisma.employee.count({
+        where: {
+          joinDate: { lte: to },
+          AND: [
+            { OR: [{ endDate: null }, { endDate: { gt: to } }] },
+            { OR: [{ archivedAt: null }, { archivedAt: { gt: to } }] },
+          ],
+        },
+      }),
+    ]);
     const averageHeadcount = (starting + ending) / 2;
     return {
       activeHeadcount,
@@ -2273,6 +2827,8 @@ export class HrLaunchService {
     employeeId: string,
     kind: 'onboarding' | 'offboarding',
     client: Prisma.TransactionClient = this.prisma,
+    actorId?: string,
+    meta?: RequestMetadata,
   ) {
     const pending =
       kind === 'onboarding'
@@ -2293,11 +2849,73 @@ export class HrLaunchService {
               },
             },
           });
-    if (kind === 'onboarding')
+    if (kind === 'onboarding') {
+      const wasCompleted = await client.employee.findUnique({
+        where: { id: employeeId },
+        select: { onboardingStatus: true },
+      });
       await client.employee.update({
         where: { id: employeeId },
         data: { onboardingStatus: pending ? 'IN_PROGRESS' : 'COMPLETED' },
       });
+      if (!pending && wasCompleted?.onboardingStatus !== 'COMPLETED')
+        await this.notifyOnboardingCompleted(employeeId, actorId, meta, client);
+    }
+  }
+
+  private async notifyOnboardingCompleted(
+    employeeId: string,
+    actorId: string | undefined,
+    meta: RequestMetadata | undefined,
+    client: Prisma.TransactionClient,
+  ) {
+    const employee = await client.employee.findUnique({
+      where: { id: employeeId },
+      select: {
+        firstName: true,
+        lastName: true,
+        userId: true,
+        manager: { select: { userId: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!employee) return;
+    if (actorId)
+      await this.audit.log(
+        {
+          actorUserId: actorId,
+          entityType: 'Employee',
+          entityId: employeeId,
+          action: 'ONBOARDING_COMPLETED',
+          newValues: { onboardingStatus: 'COMPLETED' },
+          requestMetadata: meta,
+        },
+        client,
+      );
+    const name = `${employee.firstName} ${employee.lastName}`;
+    if (employee.userId)
+      await this.notifications.create(
+        {
+          userId: employee.userId,
+          type: NotificationType.ONBOARDING_COMPLETED,
+          title: 'Onboarding complete — welcome aboard!',
+          message: `All onboarding tasks are done. Welcome aboard, ${employee.firstName}!`,
+          entityType: 'Employee',
+          entityId: employeeId,
+        },
+        client,
+      );
+    if (employee.manager?.userId)
+      await this.notifications.create(
+        {
+          userId: employee.manager.userId,
+          type: NotificationType.ONBOARDING_COMPLETED,
+          title: 'Direct report onboarding complete',
+          message: `${name} has completed all onboarding tasks.`,
+          entityType: 'Employee',
+          entityId: employeeId,
+        },
+        client,
+      );
   }
 
   private async defaultOnboardingTemplate() {
@@ -2483,6 +3101,27 @@ function timeMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
+function shiftStandardMinutes(startTime: string, endTime: string) {
+  const diff = timeMinutes(endTime) - timeMinutes(startTime);
+  // Overnight shifts (e.g. 22:00-06:00) wrap past midnight.
+  return diff > 0 ? diff : diff + 24 * 60;
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function renderTemplate(
+  content: string,
+  values: Record<string, string>,
+): string {
+  return content.replace(
+    /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g,
+    (match: string, key: string) =>
+      values[key] !== undefined ? values[key] : match,
+  );
+}
+
 function validateTemplateTasks(tasks: CreateTaskTemplateDto['tasks']) {
   if (!Array.isArray(tasks) || !tasks.length)
     throw new BadRequestException('At least one template task is required.');
@@ -2495,6 +3134,89 @@ function validateTemplateTasks(tasks: CreateTaskTemplateDto['tasks']) {
         'Every template task requires a title and valid category.',
       );
   }
+}
+
+function validateCustomFieldValue(
+  definition: {
+    fieldType: string;
+    isRequired: boolean;
+    selectOptions?: unknown;
+  },
+  value: Record<string, unknown>,
+) {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new BadRequestException('Custom field value must be an object.');
+  const candidate = value.selected ?? value.value ?? value.text ?? value;
+  if (definition.isRequired) {
+    const empty =
+      candidate === null ||
+      candidate === undefined ||
+      (typeof candidate === 'string' && !candidate.trim()) ||
+      (typeof candidate === 'object' && Object.keys(candidate).length === 0);
+    if (empty) throw new BadRequestException('Custom field value is required.');
+  }
+  const options = Array.isArray(definition.selectOptions)
+    ? (definition.selectOptions as unknown[]).map(String)
+    : null;
+  switch (definition.fieldType) {
+    case 'SELECT': {
+      if (options) {
+        const selected = extractSelectableString(candidate);
+        if (!options.includes(selected))
+          throw new BadRequestException(
+            `Value must be one of: ${options.join(', ')}.`,
+          );
+      }
+      break;
+    }
+    case 'NUMBER': {
+      const numeric =
+        typeof candidate === 'number'
+          ? candidate
+          : typeof candidate === 'string' && candidate.trim() !== ''
+            ? Number(candidate)
+            : NaN;
+      if (!Number.isFinite(numeric))
+        throw new BadRequestException('Value must be a number.');
+      break;
+    }
+    case 'BOOLEAN': {
+      if (typeof candidate !== 'boolean')
+        throw new BadRequestException('Value must be a boolean.');
+      break;
+    }
+    case 'DATE': {
+      const raw = extractDateString(candidate);
+      if (Number.isNaN(Date.parse(`${raw.slice(0, 10)}T00:00:00.000Z`)))
+        throw new BadRequestException('Value must be a valid date.');
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function extractSelectableString(candidate: unknown): string {
+  if (typeof candidate === 'string') return candidate;
+  if (typeof candidate === 'number' || typeof candidate === 'boolean')
+    return String(candidate);
+  if (candidate && typeof candidate === 'object') {
+    const nested =
+      (candidate as Record<string, unknown>).selected ??
+      (candidate as Record<string, unknown>).value;
+    if (typeof nested === 'string') return nested;
+    if (typeof nested === 'number' || typeof nested === 'boolean')
+      return String(nested);
+  }
+  return '';
+}
+
+function extractDateString(candidate: unknown): string {
+  if (typeof candidate === 'string') return candidate;
+  if (candidate instanceof Date) return candidate.toISOString();
+  if (typeof candidate === 'number' || typeof candidate === 'boolean')
+    return String(candidate);
+  return '';
 }
 
 function parseCsv(csv: string) {

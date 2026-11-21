@@ -12,8 +12,14 @@ import {
 } from '../../generated/prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import {
+  AccountProvisioningService,
+  invitationLinkVisibleInDev,
+} from '../account-provisioning/account-provisioning.service';
+import type { InvitationDelivery } from '../account-provisioning/invitation-mailer.service';
 import type { RequestMetadata } from '../common/request-metadata';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PositionAccessService } from '../positions/position-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AssignAttendancePolicyDto,
@@ -53,10 +59,12 @@ const employeeSummary = {
   archivedAt: true,
   departmentId: true,
   managerId: true,
+  positionId: true,
   attendancePolicyId: true,
   onboardingStatus: true,
   offboardingStatus: true,
   department: { select: { id: true, name: true } },
+  position: { select: { id: true, code: true, title: true } },
   manager: {
     select: { id: true, employeeNumber: true, firstName: true, lastName: true },
   },
@@ -97,6 +105,8 @@ export class HrService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly launch: HrLaunchService,
+    private readonly positionAccess: PositionAccessService,
+    private readonly accountProvisioning: AccountProvisioningService,
   ) {}
 
   async createEmployee(
@@ -105,10 +115,22 @@ export class HrService {
     meta?: RequestMetadata,
   ) {
     this.assertOrganizationLevelAllowed(dto.organizationLevel, actor);
+    if (dto.erpAccessRequired && dto.userId)
+      throw new BadRequestException(
+        'ERP access provisioning cannot be combined with an existing user link.',
+      );
+    if (dto.erpAccessRequired && !dto.workEmail?.trim())
+      throw new BadRequestException(
+        'Work email is required when ERP access is requested.',
+      );
     await this.launch.validateManager(undefined, dto.managerId);
+    let created;
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const { shiftId, ...employeeData } = dto;
+      created = await this.prisma.$transaction(async (tx) => {
+        const { shiftId, erpAccessRequired, ...employeeData } = dto;
+        await this.requireActiveDepartment(dto.departmentId, tx);
+        if (dto.positionId)
+          await this.requireActivePosition(dto.positionId, tx);
         if (shiftId) await this.requireActiveShift(shiftId, tx);
         const counter = await tx.employeeCounter.upsert({
           where: { id: 1 },
@@ -141,6 +163,21 @@ export class HrService {
           employee.joinDate,
           tx,
         );
+        let erpAccount = null;
+        if (erpAccessRequired)
+          erpAccount = await this.accountProvisioning.provisionEmployee(
+            employee.id,
+            actor.id,
+            meta,
+            tx,
+          );
+        else if (dto.positionId)
+          await this.positionAccess.syncPositionRoles(
+            employee.id,
+            actor.id,
+            meta,
+            tx,
+          );
         await this.audit.log(
           {
             actorUserId: actor.id,
@@ -152,21 +189,88 @@ export class HrService {
               firstName: employee.firstName,
               lastName: employee.lastName,
               shiftId: shiftId ?? null,
+              ...compensationSnapshot(dto),
             },
             requestMetadata: meta,
           },
           tx,
         );
-        return shiftId
-          ? tx.employee.findUniqueOrThrow({
-              where: { id: employee.id },
-              select: employeeSummary,
-            })
-          : employee;
+        const saved =
+          shiftId || erpAccount
+            ? await tx.employee.findUniqueOrThrow({
+                where: { id: employee.id },
+                select: employeeSummary,
+              })
+            : employee;
+        return { saved, erpAccount, shiftId: shiftId ?? null };
       });
     } catch (error) {
       this.rethrowConflict(error, 'Employee user or email is already linked.');
     }
+    return this.finishProvisioning(created, actor.id, meta);
+  }
+
+  /**
+   * Email delivery runs AFTER commit: SMTP must never hold the DB
+   * transaction open, and a mail failure must never report the hire itself
+   * as failed — the account simply stays pending activation for retry.
+   */
+  private async finishProvisioning(
+    created: {
+      saved: Record<string, unknown> & {
+        firstName: string;
+        employeeNumber: string;
+      };
+      erpAccount: {
+        invitation: {
+          id: string;
+          userId: string;
+          expiresAt: Date;
+          invitationLink: string;
+        };
+        loginEmail: string;
+      } | null;
+      shiftId: string | null;
+    },
+    actorId: string,
+    meta?: RequestMetadata,
+  ) {
+    if (!created.erpAccount) return created.saved;
+    let delivery: InvitationDelivery = 'FAILED';
+    try {
+      delivery = (
+        await this.accountProvisioning.deliverInvitation(
+          created.erpAccount.invitation,
+          {
+            email: created.erpAccount.loginEmail,
+            firstName: created.saved.firstName,
+            employeeNumber: created.saved.employeeNumber,
+          },
+          actorId,
+          meta,
+        )
+      ).delivery;
+    } catch {
+      // Delivery bookkeeping itself failed — surface FAILED so HR retries;
+      // the created account is unaffected.
+    }
+    const { invitation, ...account } = created.erpAccount;
+    return {
+      ...created.saved,
+      erpAccount: {
+        ...account,
+        invitation: {
+          id: invitation.id,
+          expiresAt: invitation.expiresAt,
+          delivery,
+          // Raw setup link only for explicit development debugging —
+          // production HR UI never receives it.
+          ...(invitationLinkVisibleInDev() && {
+            invitationLink: invitation.invitationLink,
+          }),
+        },
+      },
+    };
   }
 
   async findEmployees(query: EmployeeQueryDto) {
@@ -216,6 +320,10 @@ export class HrService {
         address: canSeeSensitive,
         emergencyContactName: canSeeSensitive,
         emergencyContactPhone: canSeeSensitive,
+        salaryBand: canSeeSensitive,
+        payRate: canSeeSensitive,
+        payFrequency: canSeeSensitive,
+        currency: canSeeSensitive,
         erpAccountDisabled: true,
         emailAccessRemoved: true,
         vpnRemoved: true,
@@ -246,6 +354,13 @@ export class HrService {
     const { changeReason, shiftId, ...changes } = dto;
     try {
       return await this.prisma.$transaction(async (tx) => {
+        if (dto.departmentId && dto.departmentId !== existing.departmentId)
+          await this.requireActiveDepartment(dto.departmentId, tx);
+        const positionChanged =
+          dto.positionId !== undefined &&
+          dto.positionId !== existing.positionId;
+        if (dto.positionId)
+          await this.requireActivePosition(dto.positionId, tx);
         if (shiftId) await this.requireActiveShift(shiftId, tx);
         const updated = await tx.employee.update({
           where: { id },
@@ -255,7 +370,11 @@ export class HrService {
             ...(dto.endDate && { endDate: dateOnly(dto.endDate) }),
             ...(dto.dateOfBirth && { dateOfBirth: dateOnly(dto.dateOfBirth) }),
           },
-          select: employeeSummary,
+          select: {
+            ...employeeSummary,
+            ...compensationSelect,
+            positionId: true,
+          },
         });
         await this.audit.log(
           {
@@ -277,6 +396,25 @@ export class HrService {
           meta,
           tx,
         );
+        const oldComp = compensationSnapshot(existing);
+        const newComp = compensationSnapshot(updated);
+        if (JSON.stringify(oldComp) !== JSON.stringify(newComp))
+          await this.audit.log(
+            {
+              actorUserId: actor.id,
+              entityType: 'Employee',
+              entityId: id,
+              action: 'EMPLOYEE_COMPENSATION_CHANGED',
+              oldValues: oldComp,
+              newValues: newComp,
+              requestMetadata: meta,
+            },
+            tx,
+          );
+        // Position-driven access sync runs only on an actual position change —
+        // department, title or level edits alone never touch roles.
+        if (positionChanged)
+          await this.positionAccess.syncPositionRoles(id, actor.id, meta, tx);
         if (shiftId) {
           await this.setEmployeeShift(
             id,
@@ -288,7 +426,11 @@ export class HrService {
           );
           return tx.employee.findUniqueOrThrow({
             where: { id },
-            select: employeeSummary,
+            select: {
+              ...employeeSummary,
+              ...compensationSelect,
+              positionId: true,
+            },
           });
         }
         return updated;
@@ -323,7 +465,10 @@ export class HrService {
           entityId: id,
           action: 'EMPLOYEE_STATUS_CHANGED',
           oldValues: { status: old.employmentStatus },
-          newValues: { status: updated.employmentStatus },
+          newValues: {
+            status: updated.employmentStatus,
+            ...(dto.reason && { reason: dto.reason }),
+          },
           requestMetadata: meta,
         },
         tx,
@@ -344,6 +489,10 @@ export class HrService {
         meta,
         tx,
       );
+      // Reactivation recalculates expected position roles but never enables
+      // the ERP account — that stays with the IT access workflow.
+      if (dto.status === 'ACTIVE' || dto.status === 'PROBATION')
+        await this.positionAccess.syncPositionRoles(id, actorId, meta, tx);
       return updated;
     });
   }
@@ -464,18 +613,36 @@ export class HrService {
     const employee = await this.attendanceEmployeeForUser(userId);
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const attendance = await tx.attendance.findFirst({
-        where: { employeeId: employee.id },
-        orderBy: { date: 'desc' },
-        include: attendanceSessions,
-      });
+      // Prefer an attendance day with an open work session (covers overnight
+      // sessions where the latest calendar row may not hold the open session).
+      const attendance =
+        (await tx.attendance.findFirst({
+          where: {
+            employeeId: employee.id,
+            workSessions: { some: { endedAt: null } },
+          },
+          orderBy: { date: 'desc' },
+          include: attendanceSessions,
+        })) ??
+        (await tx.attendance.findFirst({
+          where: { employeeId: employee.id },
+          orderBy: { date: 'desc' },
+          include: attendanceSessions,
+        }));
       if (!attendance?.checkInAt)
         throw new BadRequestException('Check in before checking out.');
       const workSession = attendance.workSessions.find(
         ({ endedAt }) => endedAt === null,
       );
-      if (!workSession)
-        throw new ConflictException('You are already checked out.');
+      if (!workSession) {
+        const isToday =
+          attendance.date.getUTCFullYear() === now.getUTCFullYear() &&
+          attendance.date.getUTCMonth() === now.getUTCMonth() &&
+          attendance.date.getUTCDate() === now.getUTCDate();
+        if (isToday && attendance.checkOutAt)
+          throw new ConflictException('You are already checked out.');
+        throw new BadRequestException('Check in before checking out.');
+      }
       const activeBreak = attendance.breaks.find(
         ({ endedAt }) => endedAt === null,
       );
@@ -602,7 +769,11 @@ export class HrService {
       where: { userId },
       include: { attendancePolicy: true },
     });
-    if (!employee || employee.employmentStatus !== 'ACTIVE') {
+    if (
+      !employee ||
+      (employee.employmentStatus !== 'ACTIVE' &&
+        employee.employmentStatus !== 'PROBATION')
+    ) {
       return { eligible: false };
     }
     const now = new Date();
@@ -864,17 +1035,54 @@ export class HrService {
   shifts() {
     return this.prisma.shift.findMany({ orderBy: { name: 'asc' } });
   }
-  createShift(dto: CreateShiftDto) {
-    return this.prisma.shift
-      .create({ data: dto })
-      .catch((e: unknown) =>
-        this.rethrowConflict(e, 'A shift with this name already exists.'),
-      );
+  async createShift(
+    dto: CreateShiftDto,
+    actorId?: string,
+    meta?: RequestMetadata,
+  ) {
+    try {
+      const shift = await this.prisma.shift.create({ data: dto });
+      if (actorId)
+        await this.audit.log({
+          actorUserId: actorId,
+          entityType: 'Shift',
+          entityId: shift.id,
+          action: 'SHIFT_CREATED',
+          newValues: { name: shift.name },
+          requestMetadata: meta,
+        });
+      return shift;
+    } catch (e: unknown) {
+      this.rethrowConflict(e, 'A shift with this name already exists.');
+    }
   }
-  updateShift(id: string, dto: UpdateShiftDto) {
-    return this.prisma.shift
-      .update({ where: { id }, data: dto })
-      .catch((e: unknown) => this.rethrowKnown(e, 'Shift'));
+  async updateShift(
+    id: string,
+    dto: UpdateShiftDto,
+    actorId?: string,
+    meta?: RequestMetadata,
+  ) {
+    try {
+      const old = await this.prisma.shift.findUnique({ where: { id } });
+      if (!old) throw new NotFoundException('Shift not found.');
+      const shift = await this.prisma.shift.update({
+        where: { id },
+        data: dto,
+      });
+      if (actorId)
+        await this.audit.log({
+          actorUserId: actorId,
+          entityType: 'Shift',
+          entityId: id,
+          action: 'SHIFT_UPDATED',
+          oldValues: { name: old.name, isActive: old.isActive },
+          newValues: { name: shift.name, isActive: shift.isActive },
+          requestMetadata: meta,
+        });
+      return shift;
+    } catch (e: unknown) {
+      this.rethrowKnown(e, 'Shift');
+    }
   }
   async assignShift(
     dto: AssignShiftDto,
@@ -1020,6 +1228,8 @@ export class HrService {
       include: { employee: true, approvals: true },
     });
     if (!leave) throw new NotFoundException('Leave request not found.');
+    if (leave.employee.userId === actorId)
+      throw new ForbiddenException('You cannot review your own leave request.');
     if (leave.status !== LeaveRequestStatus.PENDING)
       throw new ConflictException(
         'Only pending leave requests can be reviewed.',
@@ -1280,7 +1490,10 @@ export class HrService {
       throw new NotFoundException(
         'Your user account is not linked to an employee record.',
       );
-    if (employee.employmentStatus !== 'ACTIVE')
+    if (
+      employee.employmentStatus !== 'ACTIVE' &&
+      employee.employmentStatus !== 'PROBATION'
+    )
       throw new ForbiddenException(
         'Attendance is limited to active employees.',
       );
@@ -1333,6 +1546,30 @@ export class HrService {
     });
     if (!shift) throw new BadRequestException('Active shift was not found.');
     return shift;
+  }
+
+  private async requireActiveDepartment(
+    id: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
+    const department = await client.department.findFirst({
+      where: { id, isActive: true },
+    });
+    if (!department)
+      throw new BadRequestException('Active department was not found.');
+    return department;
+  }
+
+  private async requireActivePosition(
+    id: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
+    const position = await client.position.findFirst({
+      where: { id, isActive: true },
+    });
+    if (!position)
+      throw new BadRequestException('Active position was not found.');
+    return position;
   }
 
   private async setEmployeeShift(
@@ -1490,6 +1727,7 @@ function publicEmployee(value: {
   employmentStatus: string;
   jobTitle: string;
   organizationLevel: string;
+  positionId: string | null;
 }) {
   return {
     employeeNumber: value.employeeNumber,
@@ -1498,5 +1736,30 @@ function publicEmployee(value: {
     employmentStatus: value.employmentStatus,
     jobTitle: value.jobTitle,
     organizationLevel: value.organizationLevel,
+    positionId: value.positionId,
+  };
+}
+
+const compensationSelect = {
+  salaryBand: true,
+  payRate: true,
+  payFrequency: true,
+  currency: true,
+} satisfies Prisma.EmployeeSelect;
+
+function compensationSnapshot(value: {
+  salaryBand?: string | null;
+  payRate?: { toString(): string } | string | number | null;
+  payFrequency?: string | null;
+  currency?: string | null;
+}) {
+  return {
+    salaryBand: value.salaryBand ?? null,
+    payRate:
+      value.payRate === undefined || value.payRate === null
+        ? null
+        : value.payRate.toString(),
+    payFrequency: value.payFrequency ?? null,
+    currency: value.currency ?? null,
   };
 }

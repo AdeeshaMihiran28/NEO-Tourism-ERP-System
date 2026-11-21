@@ -1,6 +1,7 @@
 import {
   AccessReviewStatus,
   CustomFieldType,
+  EmployeeDocumentCategory,
   EmployeeDocumentVisibility,
   EmploymentStatus,
   EmploymentType,
@@ -93,6 +94,19 @@ export class LeaveCalendarQueryDto {
   @IsOptional() @IsUUID() managerId?: string;
 }
 
+export class AvailabilityQueryDto {
+  @IsDateString() date!: string;
+  @IsOptional() @IsDateString() dateTo?: string;
+}
+
+export class SharedCalendarQueryDto {
+  @IsDateString() dateFrom!: string;
+  @IsDateString() dateTo!: string;
+  @IsOptional() @IsUUID() departmentId?: string;
+  @IsOptional() @IsUUID() employeeId?: string;
+  @IsOptional() @IsEnum(LeaveType) leaveType?: LeaveType;
+}
+
 export class ApprovalCommentDto {
   @IsOptional() @IsString() @MaxLength(1000) comment?: string;
 }
@@ -136,6 +150,39 @@ export class CreateTaskTemplateDto {
 export class StartProcessDto {
   @IsOptional() @IsUUID() templateId?: string;
   @IsOptional() @IsDateString() effectiveDate?: string;
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  documentTemplateIds?: string[];
+}
+
+export class CreateDocumentTemplateDto {
+  @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
+  @IsOptional()
+  @IsEnum(EmployeeDocumentCategory)
+  category?: EmployeeDocumentCategory;
+  @IsOptional()
+  @IsEnum(EmployeeDocumentVisibility)
+  visibility?: EmployeeDocumentVisibility;
+  @IsString() @IsNotEmpty() @MaxLength(10000) content!: string;
+  @IsOptional() @IsBoolean() requiresAcknowledgement?: boolean;
+}
+
+export class UpdateDocumentTemplateDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) name?: string;
+  @IsOptional()
+  @IsEnum(EmployeeDocumentCategory)
+  category?: EmployeeDocumentCategory;
+  @IsOptional()
+  @IsEnum(EmployeeDocumentVisibility)
+  visibility?: EmployeeDocumentVisibility;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(10000) content?: string;
+  @IsOptional() @IsBoolean() requiresAcknowledgement?: boolean;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class IssueDocumentDto {
+  @IsUUID() templateId!: string;
 }
 
 export class UpdateHrTaskDto {
