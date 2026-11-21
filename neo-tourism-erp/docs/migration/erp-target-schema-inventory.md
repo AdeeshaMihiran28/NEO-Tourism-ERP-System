@@ -2,7 +2,7 @@
 
 ## Basis and scope
 
-Generated from the actual `backend/prisma/schema.prisma` and all 20 migration directories present on 2026-08-26. It does not rely on the older planning document. PostgreSQL is the target engine; Prisma uses UUID primary keys for the listed business models and `Decimal(12,2)` for listed money fields. `String` fields have no Prisma length cap unless the schema explicitly specifies one.
+Generated from the actual `backend/prisma/schema.prisma` and all 24 migration directories present on 2026-09-07. It does not rely on the older planning document. PostgreSQL is the target engine; Prisma uses UUID primary keys for the listed business models and `Decimal(12,2)` for listed money fields. `String` fields have no Prisma length cap unless the schema explicitly specifies one.
 
 “Required” below lists material fields without `?`; generated IDs/timestamps and defaulted fields are noted where useful. Any migration must also satisfy all target foreign keys and application invariants. This inventory describes the target only and is not a legacy mapping.
 
@@ -54,6 +54,8 @@ Current lead status values are `NEW`, `HANDLING`, `QUOTING`, `FOLLOW_UP`, `CALLB
 | `Reconciliation` | Per-booking finance verification | `id`; unique `bookingId` | booking; status and checks defaulted | Booking, optional reconciler, discrepancies | `ReconciliationStatus` | notes and verification state | Historical “reconciled” must meet agreed evidence rules; do not copy a label blindly. |
 | `ReconciliationDiscrepancy` | Tracked reconciliation mismatch | `id` | reconciliation, booking, type, description, creator; status defaulted | Reconciliation, Booking, assigned/creator/resolver Users | `DiscrepancyType`, `DiscrepancyStatus` | amounts, resolution notes | Ensure reconciliation and booking agree; retain unresolved historical items. |
 
+The four later accounting migrations also add customer/supplier invoices and advances, company bank accounts and statement matching, GL accounts/mappings, journals/lines, exchange rates, tax codes, accounting periods and reporting controls. Their stable source keys, opening-state rules and exact per-currency reconciliation are unknown until the legacy Finance source is supplied; none is approved for import by this target-only inventory.
+
 ## Marketing attribution relevant to CRM history
 
 | Model | Purpose | Primary key / unique fields | Required fields | Relationships | Relevant enums | Sensitive fields | Migration notes |
@@ -71,4 +73,3 @@ Current lead status values are `NEW`, `HANDLING`, `QUOTING`, `FOLLOW_UP`, `CALLB
 5. User/Employee representation for former agents is not decided.
 
 Before Step 25, review a generic `MigrationReference` design with unique `(sourceSystem, sourceEntity, sourceId)`, target entity/ID, batch ID, timestamps, and import status. Prefer this over adding legacy columns to every model, but do not implement it until real source cardinalities and governance are known.
-

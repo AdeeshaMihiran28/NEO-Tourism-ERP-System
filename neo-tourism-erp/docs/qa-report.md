@@ -87,3 +87,18 @@ The release is suitable for supervised internal testing with non-production data
 ## Readiness conclusion
 
 **READY for controlled internal user testing.** Use only test data, complete the unchecked operational/manual items in `internal-release-checklist.md`, and log findings against `known-issues.md`. This decision does not authorize production use, real customer migration, or live provider integrations.
+
+## Step 21 final blocker regression — 2026-08-24
+
+**Result: NO FINAL BLOCKING APPLICATION ISSUES FOUND.**
+
+- Blocking issues before review: none recorded (P0: 0, P1: 0, UAT-P0: 0, UAT-P1: 0).
+- Blocking issues reproduced or fixed: none. Working application code was not changed unnecessarily and no issue was falsely created or closed.
+- Frontend lint/build, backend lint/build, 5 unit suites / 11 tests, 12 database E2E suites / 99 tests, Prisma format/validate/generate, and migration status all passed.
+- The complete E2E regression covers the critical Customer-to-folder-history workflow, authentication/RBAC/object scope, finance/HR restrictions, concurrency/duplicate protection, decimal calculations, reconciliation/lifecycle rules, schedulers, notifications, audit sanitization, and website webhook controls.
+- A uniquely named disposable database accepted migration deployment, Prisma generation, and the seed. The production backend build then returned HTTP 200 from `/health` with safe database status; the database and helper were removed.
+- Port 3002 was occupied during the first runtime attempt, so the smoke test used verified-free port 31021 without terminating the existing process. This was an environment collision, not an application failure.
+- Chrome and Edge are installed, but their ChatGPT browser extension/native-host connection is absent. Interactive console and resolution testing therefore remains `QA-201`; no browser result is claimed.
+- The tracked-secret scan found only documented UAT placeholders. No real credential was identified.
+
+Remaining work is P2/P3, manual UAT/acceptance, browser verification, or external infrastructure/provider work. It is not a reproduced P0/P1 application defect.

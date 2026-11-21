@@ -1,5 +1,7 @@
 # CRM migration plan
 
+**Current status: NOT PERFORMED.** Current production CRM data requires separate schema analysis, mapping, cleaning, test migration, and validation. No production CRM connection or data import is part of this handover assessment.
+
 No legacy CRM data is imported by this milestone. Migration must be rehearsed and signed off separately.
 
 1. Inventory legacy customer, lead, activity, note, ownership, booking, and consent fields; identify authoritative sources and record counts.

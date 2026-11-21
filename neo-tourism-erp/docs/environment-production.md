@@ -16,6 +16,7 @@ This is a configuration inventory for the hosting/operations team. It contains v
 | `DATABASE_URL` | Yes | Secret PostgreSQL connection URL for the application role. Use TLS and least privilege. |
 | `PORT` | Yes | Internal API listener port; `3001` is the project default. |
 | `FRONTEND_URL` | Yes | Exact public HTTPS frontend origin used by CORS. Do not use a wildcard. |
+| `TRUST_PROXY` | Yes | `true` only when exactly one trusted reverse proxy terminates HTTPS; otherwise `false`. |
 | `APP_ENV` | Yes | Set to `production`. |
 | `JWT_SECRET` | Yes | High-entropy secret generated and stored by the secret manager. Rotate under an approved session-impact plan. |
 | `JWT_EXPIRES_IN` | Yes | Approved access-token lifetime, for example `8h`; security must approve the production value. |
@@ -23,6 +24,7 @@ This is a configuration inventory for the hosting/operations team. It contains v
 | `INTEGRATION_HTTP_TIMEOUT_MS` | Yes | Positive provider timeout suitable for the hosting network. |
 | `INTEGRATION_SYSTEM_USER_EMAIL` | Conditional | Active, tightly controlled service identity if integrations are enabled. |
 | `WEBSITE_WEBHOOK_SECRET` | Conditional | Required only when website lead intake is enabled; exchange through secure channels. |
+| `META_MOCK_ENABLED` | Yes | Set to `false`; production startup rejects mock mode. |
 | `WISE_API_TOKEN` | Conditional | Leave unset. The current Wise adapter is development/mock preparation only and is not approved for live use. |
 | `PBX_API_URL` / `PBX_API_TOKEN` | Conditional | Leave unset until a provider sandbox and security acceptance have completed. |
 
@@ -35,4 +37,3 @@ This is a configuration inventory for the hosting/operations team. It contains v
 - Use separate databases, credentials, secrets, domains, and storage for development, UAT, pre-production, and production.
 - Redact database URLs, JWTs, credentials, webhook signatures, passport details, and personal data from logs and support exports.
 - Rotate secrets after suspected exposure and record the event in the operational audit process.
-

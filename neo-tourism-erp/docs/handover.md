@@ -2,7 +2,13 @@
 
 ## Scope and readiness
 
-Neo Tourism ERP 2.0 is suitable for controlled internal development/QA testing. It is not production-ready and no production deployment was performed.
+Neo Tourism ERP 2.0 passes the recorded automated engineering gates and is suitable for controlled internal development/QA testing. UAT has not been executed or signed, the manual browser matrix is open, and the 2026-08-24 decision is **NOT READY FOR PRE-PRODUCTION TECHNICAL HANDOVER**. It is not production-ready and no production deployment was performed.
+
+The post-build evidence and manual acceptance steps are recorded in `qa-report.md`, `known-issues.md`, and `internal-release-checklist.md`. The current handover decision and later hosting requirements are in `final-handover-summary.md`, `pre-production-checklist.md`, `deployment-requirements.md`, and `environment-production.md`. Treat those files as the current release gate.
+
+Role-based business acceptance is prepared under `uat/README.md`. Provision a separate UAT database, run the guarded UAT seed, and complete `uat/uat-checklist.md` before collecting department sign-off.
+
+Current UAT progress is recorded in `uat/uat-progress.md`: every department is `NOT TESTED`, no approval exists, and no actual UAT issue has been submitted. Blank issue-log template rows are not evidence of testing.
 
 ## Start checklist
 
@@ -22,6 +28,7 @@ Neo Tourism ERP 2.0 is suitable for controlled internal development/QA testing. 
 - Run callback/lifecycle schedulers twice in test and confirm no duplicate alert/state change.
 - Check Chrome/Edge at desktop and narrow viewport; test keyboard focus, labels, loading, empty and error states.
 - Review audit records for administration, Sale Made, handover, booking edits, finance, lifecycle, HR/IT approvals, roles, and integrations.
+- For Marketing UAT, run the tracked and untracked website enquiry scenarios in `marketing-signal-radar.md`, confirm Signal uses selling value only, and confirm Radar never creates an opportunity without a user action.
 
 ## Known limitations / production blockers
 
@@ -30,6 +37,8 @@ Neo Tourism ERP 2.0 is suitable for controlled internal development/QA testing. 
 - Operational HR/IT self-service lists are capped rather than fully cursor paginated.
 - Swagger exposes the route model in development and must remain disabled in production.
 - npm currently reports a high-severity recursive-merge advisory through Prisma CLI's development configuration dependency. npm proposes a Prisma 7 to 6 downgrade, which is incompatible with this codebase; do not apply `npm audit fix --force`. Track the upstream Prisma dependency update. The production API does not invoke Prisma CLI configuration merging at request time, but the development toolchain finding remains open.
+- The hourly follow-up and booking-lifecycle schedulers have per-record idempotency controls but no global distributed lock. Use one scheduler-active worker until a distributed lock/queue has been implemented and tested.
+- Binary files are not stored by this application. Approved durable object storage, malware scanning, retention, and access controls are required before accepting real documents.
 
 ## Ownership after handover
 

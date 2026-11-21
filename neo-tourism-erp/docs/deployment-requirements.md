@@ -41,7 +41,7 @@ Do not run `prisma migrate dev`, `prisma db push`, a development/UAT seed, or `n
 
 - Terminate TLS using current organization-approved protocols and certificates.
 - Allow CORS only from the exact frontend origin. Limit database access to the API and approved administration paths.
-- Keep Swagger disabled. Apply an approved reverse-proxy security-header and rate-limit policy; login throttling is not implemented in the application yet.
+- Keep Swagger disabled. Helmet and application throttling protect the API, including stricter login/webhook limits; retain equivalent edge controls for multi-instance deployments and test the combined policy.
 - Run the API with a non-administrator operating-system/container identity and a read-only application filesystem where practical.
 - Send request-ID-correlated logs to controlled storage with retention and restricted access.
 - Configure production domain/DNS and certificates outside this repository, then verify both published origins and the health monitor from the hosting network.

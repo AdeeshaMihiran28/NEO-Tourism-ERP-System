@@ -8,7 +8,7 @@ This is a test environment. Use fictional UAT records only. **Never enter real c
 
 ## Who should test
 
-One or more representatives from Sales, Admin/Operations, Accounts, HR, IT, and Management should complete their department guide. A normal employee should complete the self-service parts of the HR and IT guides.
+One or more representatives from Sales, Admin/Operations, Accounts, HR, Marketing, IT, and Management should complete their department guide. A normal employee should complete the self-service parts of the HR and IT guides.
 
 Do not use `SUPER_ADMIN` for normal scenarios.
 
@@ -20,6 +20,8 @@ Do not use `SUPER_ADMIN` for normal scenarios.
 | UAT Operations 1 | `uat.operations1@<UAT_EMAIL_DOMAIN>` | Admin handover and booking work |
 | UAT Accounts 1 | `uat.accounts1@<UAT_EMAIL_DOMAIN>` | Payments and reconciliation |
 | UAT HR 1 | `uat.hr1@<UAT_EMAIL_DOMAIN>` | HR administration |
+| UAT Marketing User | `uat.marketing1@<UAT_EMAIL_DOMAIN>` | Marketing creation and execution |
+| UAT Marketing Manager | `uat.marketingmanager@<UAT_EMAIL_DOMAIN>` | Marketing approval and management |
 | UAT IT 1 | `uat.it1@<UAT_EMAIL_DOMAIN>` | IT operations |
 | UAT Employee 1 | `uat.employee1@<UAT_EMAIL_DOMAIN>` | Employee self-service |
 
@@ -118,8 +120,10 @@ Code completion alone does not close a UAT issue. Avoid scope expansion: priorit
 - `operations-uat.md`
 - `accounts-uat.md`
 - `hr-uat.md`
+- `../marketing/uat/marketing-uat.md`
 - `it-uat.md`
 - `management-uat.md`
+- `final-uat-plan.md`
 - `uat-checklist.md`
 - `uat-feedback-template.md`
 - `uat-issue-log.md`
