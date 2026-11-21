@@ -29,9 +29,11 @@ export default function NewCustomerPage() {
     setSubmitting(true);
     setError("");
     try {
+      const payload = { ...input, confirmDuplicate };
+      delete payload.isActive;
       const customer = await apiFetch<CustomerListItem>("/customers", {
         method: "POST",
-        body: JSON.stringify({ ...input, confirmDuplicate }),
+        body: JSON.stringify(payload),
       });
       router.push(`/customers/${customer.id}`);
     } catch (caught) {

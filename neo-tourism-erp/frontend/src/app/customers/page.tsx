@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { ApiError, apiFetch } from "@/lib/api/client";
-import type { CustomerListResponse, CustomerType } from "@/types/customer";
+import { customerTypeLabel, type CustomerListResponse, type CustomerType } from "@/types/customer";
 
 const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -124,7 +124,7 @@ export default function CustomersPage() {
         <input
           value={draftSearch}
           onChange={(event) => setDraftSearch(event.target.value)}
-          placeholder="Search name, email or phone…"
+          placeholder="Search name, email, phone or customer ID…"
           aria-label="Search customers"
           className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
         />
@@ -183,35 +183,38 @@ export default function CustomersPage() {
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                 <tr>
-                  {['Name', 'Email', 'Phone', 'Type', 'Status', 'Created', 'Actions'].map((heading) => (
-                    <th key={heading} className="whitespace-nowrap px-5 py-3 font-semibold">{heading}</th>
+                  {['Customer ID', 'Name', 'Phone', 'Email', 'Type', 'Inquiries', 'Bookings', 'Last inquiry', 'Last booking', 'Action'].map((heading) => (
+                    <th key={heading} className="whitespace-nowrap px-3 py-3 font-semibold">{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {result.data.map((customer) => (
                   <tr key={customer.id} className="hover:bg-slate-50/70">
-                    <td className="whitespace-nowrap px-5 py-4 font-medium text-slate-950">
+                    <td className="whitespace-nowrap px-3 py-4 font-mono text-xs text-slate-600" title={customer.id}>
+                      {customer.id.slice(0, 8).toUpperCase()}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 font-medium text-slate-950">
                       {customer.firstName} {customer.lastName}
                     </td>
-                    <td className="px-5 py-4 text-slate-600">{customer.email ?? '—'}</td>
-                    <td className="whitespace-nowrap px-5 py-4 text-slate-600">{customer.phone ?? '—'}</td>
-                    <td className="px-5 py-4">
+                    <td className="whitespace-nowrap px-3 py-4 text-slate-600">{customer.phone ?? '—'}</td>
+                    <td className="px-3 py-4 text-slate-600">{customer.email ?? '—'}</td>
+                    <td className="px-3 py-4">
                       <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800">
-                        {customer.customerType}
+                        {customerTypeLabel[customer.customerType]}
                       </span>
                     </td>
-                    <td className="px-5 py-4">
-                      <span className={customer.isActive ? "text-emerald-700" : "text-slate-500"}>
-                        {customer.isActive ? "Active" : "Inactive"}
-                      </span>
+                    <td className="px-3 py-4 text-center text-slate-700">{customer.totalInquiries}</td>
+                    <td className="px-3 py-4 text-center text-slate-700">{customer.totalBookings}</td>
+                    <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                      {customer.lastInquiryAt ? dateFormatter.format(new Date(customer.lastInquiryAt)) : '—'}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-slate-600">
-                      {dateFormatter.format(new Date(customer.createdAt))}
+                    <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                      {customer.lastBookingAt ? dateFormatter.format(new Date(customer.lastBookingAt)) : '—'}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-4">
                       <Link href={`/customers/${customer.id}`} className="font-semibold text-cyan-700 hover:text-cyan-900">
-                        Open
+                        View
                       </Link>
                     </td>
                   </tr>
