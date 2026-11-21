@@ -20,6 +20,7 @@ import { getRequestMetadata } from '../common/request-metadata';
 import { CustomersService } from './customers.service';
 import { CreateCustomerNoteDto } from './dto/create-customer-note.dto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
+import { CustomerHistoryQueryDto } from './dto/customer-history-query.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
@@ -30,14 +31,21 @@ export class CustomersController {
 
   @Get()
   @Permissions('customer.view')
-  findAll(@Query() query: CustomerQueryDto) {
-    return this.customersService.findAll(query);
+  findAll(
+    @Query() query: CustomerQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customersService.findAll(query, user);
   }
 
   @Get(':id')
   @Permissions('customer.view')
-  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.customersService.findOne(id);
+  findOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: CustomerHistoryQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customersService.findOne(id, query, user);
   }
 
   @Post()
@@ -65,7 +73,7 @@ export class CustomersController {
     return this.customersService.update(
       id,
       dto,
-      user.id,
+      user,
       getRequestMetadata(request),
     );
   }

@@ -1,14 +1,17 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import type { Customer, Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import type { RequestMetadata } from '../common/request-metadata';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCustomerNoteDto } from './dto/create-customer-note.dto';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
+import type { CustomerHistoryQueryDto } from './dto/customer-history-query.dto';
 import type { CustomerQueryDto } from './dto/customer-query.dto';
 import type { UpdateCustomerDto } from './dto/update-customer.dto';
 
@@ -34,20 +37,53 @@ export class CustomersService {
     private readonly auditService: AuditService,
   ) {}
 
-  async findAll(query: CustomerQueryDto) {
+  async findAll(query: CustomerQueryDto, user: AuthenticatedUser) {
     const where = this.buildWhere(query);
     const skip = (query.page - 1) * query.limit;
-    const total = await this.prisma.customer.count({ where });
-    const customers = await this.prisma.customer.findMany({
-      where,
-      select: customerListSelect,
-      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-      skip,
-      take: query.limit,
-    });
+    const leadWhere = this.leadScope(user);
+    const bookingWhere = this.bookingScope(user);
+    const [total, customers] = await Promise.all([
+      this.prisma.customer.count({ where }),
+      this.prisma.customer.findMany({
+        where,
+        select: {
+          ...customerListSelect,
+          _count: {
+            select: {
+              leads: { where: leadWhere },
+              bookings: { where: bookingWhere },
+            },
+          },
+          leads: {
+            where: leadWhere,
+            select: { receivedAt: true, createdAt: true },
+            orderBy: [
+              { receivedAt: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+            ],
+            take: 1,
+          },
+          bookings: {
+            where: bookingWhere,
+            select: { createdAt: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip,
+        take: query.limit,
+      }),
+    ]);
 
     return {
-      data: customers,
+      data: customers.map(({ _count, leads, bookings, ...customer }) => ({
+        ...customer,
+        totalInquiries: _count.leads,
+        totalBookings: _count.bookings,
+        lastInquiryAt: leads[0]?.receivedAt ?? leads[0]?.createdAt ?? null,
+        lastBookingAt: bookings[0]?.createdAt ?? null,
+      })),
       pagination: {
         page: query.page,
         limit: query.limit,
@@ -57,46 +93,21 @@ export class CustomersService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(
+    id: string,
+    query: CustomerHistoryQueryDto,
+    user: AuthenticatedUser,
+  ) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
-      include: {
+      select: {
+        ...customerListSelect,
         createdBy: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
         updatedBy: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
-        notes: {
-          include: {
-            createdBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-        },
-        bookings: {
-          select: {
-            id: true,
-            folderNumber: true,
-            destination: true,
-            travelStartDate: true,
-            travelEndDate: true,
-            finalServiceDate: true,
-            travelStatus: true,
-            operationsStatus: true,
-            accountsStatus: true,
-            folderStatus: true,
-          },
-          orderBy: { travelStartDate: 'desc' },
-        },
-        _count: { select: { leads: true } },
       },
     });
 
@@ -104,23 +115,134 @@ export class CustomersService {
       throw new NotFoundException('Customer not found.');
     }
 
-    const { _count, ...details } = customer;
-    const completedTrips = customer.bookings.filter(
-      (booking) => booking.travelStatus === 'TRAVEL_COMPLETE',
-    ).length;
-    const closedBookings = customer.bookings.filter(
-      (booking) => booking.folderStatus === 'CLOSED',
-    ).length;
+    const leadWhere = { customerId: id, ...this.leadScope(user) };
+    const bookingWhere = { customerId: id, ...this.bookingScope(user) };
+    const saleWhere: Prisma.SaleSubmissionWhereInput = {
+      customerId: id,
+      status: { in: ['SUBMITTED_TO_ADMIN', 'ADMIN_ACCEPTED'] },
+      lead: this.leadScope(user),
+    };
+    const [
+      totalLeads,
+      leads,
+      totalBookings,
+      bookings,
+      totalCompletedSales,
+      latestLead,
+      latestBooking,
+      latestLeadActivity,
+      latestBookingActivity,
+      latestNote,
+    ] = await Promise.all([
+      this.prisma.lead.count({ where: leadWhere }),
+      this.prisma.lead.findMany({
+        where: leadWhere,
+        select: {
+          id: true,
+          receivedAt: true,
+          createdAt: true,
+          destination: true,
+          travelDate: true,
+          travelEndDate: true,
+          source: true,
+          status: true,
+          lastMeaningfulActivityAt: true,
+          updatedAt: true,
+          assignedUser: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+        orderBy: [
+          { receivedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        skip: (query.leadPage - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.booking.count({ where: bookingWhere }),
+      this.prisma.booking.findMany({
+        where: bookingWhere,
+        select: {
+          id: true,
+          folderNumber: true,
+          destination: true,
+          travelStartDate: true,
+          travelEndDate: true,
+          createdAt: true,
+          travelStatus: true,
+          operationsStatus: true,
+          folderStatus: true,
+          salesAdvisor: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+          references: {
+            select: { id: true, type: true, reference: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.bookingPage - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.saleSubmission.count({ where: saleWhere }),
+      this.prisma.lead.findFirst({
+        where: leadWhere,
+        select: { receivedAt: true, createdAt: true },
+        orderBy: [
+          { receivedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+        ],
+      }),
+      this.prisma.booking.findFirst({
+        where: bookingWhere,
+        select: { createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.lead.findFirst({
+        where: leadWhere,
+        select: { updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.booking.findFirst({
+        where: bookingWhere,
+        select: { updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.customerNote.findFirst({
+        where: { customerId: id },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const lastActivityAt = [
+      customer.updatedAt,
+      latestLeadActivity?.updatedAt,
+      latestBookingActivity?.updatedAt,
+      latestNote?.createdAt,
+    ].reduce<Date>(
+      (latest, value) => (value && value > latest ? value : latest),
+      customer.updatedAt,
+    );
+
     return {
-      ...details,
+      ...customer,
+      leads,
+      bookings,
+      leadPagination: this.pagination(query.leadPage, query.limit, totalLeads),
+      bookingPagination: this.pagination(
+        query.bookingPage,
+        query.limit,
+        totalBookings,
+      ),
       summary: {
-        totalLeads: _count.leads,
-        totalBookings: customer.bookings.length,
-        completedTrips,
-        upcomingTrips: customer.bookings.filter(
-          (booking) => booking.travelStatus === 'UPCOMING',
-        ).length,
-        repeatPassenger: completedTrips > 0 || closedBookings > 0,
+        totalLeads,
+        totalCompletedSales,
+        totalBookings,
+        latestInquiryAt:
+          latestLead?.receivedAt ?? latestLead?.createdAt ?? null,
+        latestBookingAt: latestBooking?.createdAt ?? null,
+        lastActivityAt,
       },
     };
   }
@@ -132,6 +254,8 @@ export class CustomersService {
   ) {
     const email = dto.email?.trim().toLowerCase();
     const phone = dto.phone?.trim();
+    const secondaryPhone = dto.secondaryPhone?.trim();
+    this.assertDistinctPhones(phone, secondaryPhone);
     const possibleDuplicates = await this.findPossibleDuplicates(email, phone);
 
     if (possibleDuplicates.length && !dto.confirmDuplicate) {
@@ -149,7 +273,7 @@ export class CustomersService {
           lastName: dto.lastName.trim(),
           email,
           phone,
-          secondaryPhone: dto.secondaryPhone?.trim(),
+          secondaryPhone,
           dateOfBirth: this.parseDate(dto.dateOfBirth),
           nationality: dto.nationality?.trim(),
           customerType: dto.customerType,
@@ -178,7 +302,7 @@ export class CustomersService {
   async update(
     id: string,
     dto: UpdateCustomerDto,
-    actorId: string,
+    actor: AuthenticatedUser,
     requestMetadata?: RequestMetadata,
   ) {
     return this.prisma.$transaction(async (transaction) => {
@@ -188,6 +312,30 @@ export class CustomersService {
 
       if (!existingCustomer) {
         throw new NotFoundException('Customer not found.');
+      }
+
+      const email = dto.email?.trim().toLowerCase();
+      const phone = dto.phone?.trim();
+      const secondaryPhone =
+        dto.secondaryPhone === null ? null : dto.secondaryPhone?.trim();
+      const primaryContactChanged =
+        (email !== undefined && email !== existingCustomer.email) ||
+        (phone !== undefined && phone !== existingCustomer.phone);
+      if (
+        primaryContactChanged &&
+        !actor.permissions.includes('customer.primary_contact.edit')
+      ) {
+        throw new ForbiddenException(
+          'customer.primary_contact.edit is required to change primary email or phone.',
+        );
+      }
+      if (phone !== undefined || dto.secondaryPhone !== undefined) {
+        this.assertDistinctPhones(
+          phone ?? existingCustomer.phone ?? undefined,
+          dto.secondaryPhone !== undefined
+            ? (secondaryPhone ?? undefined)
+            : (existingCustomer.secondaryPhone ?? undefined),
+        );
       }
 
       const customer = await transaction.customer.update({
@@ -200,11 +348,11 @@ export class CustomersService {
             lastName: dto.lastName.trim(),
           }),
           ...(dto.email !== undefined && {
-            email: dto.email.trim().toLowerCase(),
+            email,
           }),
-          ...(dto.phone !== undefined && { phone: dto.phone.trim() }),
+          ...(dto.phone !== undefined && { phone }),
           ...(dto.secondaryPhone !== undefined && {
-            secondaryPhone: dto.secondaryPhone.trim(),
+            secondaryPhone,
           }),
           ...(dto.dateOfBirth !== undefined && {
             dateOfBirth: this.parseDate(dto.dateOfBirth),
@@ -216,14 +364,14 @@ export class CustomersService {
             customerType: dto.customerType,
           }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-          updatedById: actorId,
+          updatedById: actor.id,
         },
         select: customerListSelect,
       });
 
       await this.auditService.log(
         {
-          actorUserId: actorId,
+          actorUserId: actor.id,
           entityType: 'Customer',
           entityId: id,
           action: 'CUSTOMER_UPDATED',
@@ -308,6 +456,9 @@ export class CustomersService {
     for (const term of terms) {
       conditions.push({
         OR: [
+          ...(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(term)
+            ? [{ id: term }]
+            : []),
           { firstName: { contains: term, mode: 'insensitive' } },
           { lastName: { contains: term, mode: 'insensitive' } },
           { email: { contains: term, mode: 'insensitive' } },
@@ -318,6 +469,39 @@ export class CustomersService {
     }
 
     return conditions.length ? { AND: conditions } : {};
+  }
+
+  private leadScope(user: AuthenticatedUser): Prisma.LeadWhereInput {
+    if (!user.permissions.includes('lead.view')) return { id: { in: [] } };
+    if (user.permissions.includes('lead.view_all')) return {};
+    return {
+      OR: [
+        { assignedUserId: user.id },
+        { assignedUserId: null, status: 'NEW' },
+      ],
+    };
+  }
+
+  private bookingScope(user: AuthenticatedUser): Prisma.BookingWhereInput {
+    if (!user.permissions.includes('booking.view')) return { id: { in: [] } };
+    if (user.permissions.includes('booking.view_all')) return {};
+    return {
+      OR: [{ salesAdvisorId: user.id }, { operationsOwnerId: user.id }],
+    };
+  }
+
+  private pagination(page: number, limit: number, total: number) {
+    return { page, limit, total, totalPages: Math.ceil(total / limit) };
+  }
+
+  private assertDistinctPhones(primary?: string, secondary?: string) {
+    const normalizedPrimary = primary?.replace(/\D/g, '');
+    const normalizedSecondary = secondary?.replace(/\D/g, '');
+    if (normalizedPrimary && normalizedPrimary === normalizedSecondary) {
+      throw new ConflictException(
+        'Secondary phone must be different from the primary phone.',
+      );
+    }
   }
 
   private findPossibleDuplicates(email?: string, phone?: string) {

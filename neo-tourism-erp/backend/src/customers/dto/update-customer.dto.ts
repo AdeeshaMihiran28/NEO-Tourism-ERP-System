@@ -37,7 +37,7 @@ export class UpdateCustomerDto {
 
   @IsOptional()
   @Matches(PHONE_PATTERN)
-  secondaryPhone?: string;
+  secondaryPhone?: string | null;
 
   @IsOptional()
   @IsDateString({ strict: true })
